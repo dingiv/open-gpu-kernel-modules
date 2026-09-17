@@ -3855,6 +3855,15 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
     if (memArea.pRanges[0].start >= 0x200000ULL)
         dmaBase += memArea.pRanges[0].start - 0x200000ULL;
     //
+    // P3 calibration sweep knob (see kernel-open/nvidia/nv.c): extra
+    // runtime-tunable delta on top of the formula compensation, so the GSP
+    // binding function can be mapped in a single boot.
+    //
+    {
+        extern unsigned long long nv_dynbar1_calib;
+        dmaBase += (NvU64)nv_dynbar1_calib;
+    }
+    //
     pMap->hDupMemory         = hDupMemory;
     pMap->mappingGpuInstance = gpuGetInstance(pMappingGpu);
     pMap->pRemoteGpu         = pRemoteGpu;

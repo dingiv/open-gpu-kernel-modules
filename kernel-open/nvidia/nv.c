@@ -118,6 +118,17 @@
 
 MODULE_LICENSE("Dual MIT/GPL");
 
+//
+// DBG-INSTRUMENTATION (P3 calibration sweep): runtime-tunable extra delta
+// applied to the dynbar1 window encode base (bytes; may be negative).
+// Sweepable without reloading:
+//   echo 0x190000 > /sys/module/nvidia/parameters/nv_dynbar1_calib
+// Takes effect at the NEXT dynamic-window creation. Debug builds only.
+//
+unsigned long long nv_dynbar1_calib = 0;
+module_param(nv_dynbar1_calib, ullong, 0644);
+MODULE_PARM_DESC(nv_dynbar1_calib, "dynbar1 window encode extra delta in bytes (debug)");
+
 MODULE_INFO(supported, "external");
 MODULE_VERSION(NV_VERSION_STRING);
 MODULE_DESCRIPTION("NVIDIA core GPU kernel module");
