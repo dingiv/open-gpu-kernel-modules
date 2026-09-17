@@ -1083,7 +1083,19 @@ _virtmemAllocKernelMapping
                 SLI_LOOP_BREAK;
             }
 
-            bar1PhysAddr = gpumgrGetGpuPhysFbAddr(pGpu) + pDmaMappingInfo->FbAperture[gpuSubDevInst];
+            {
+                // METHOD3 (window FB-binding skew, see nv_gpu_ops.c): GSP binds
+                // BAR1 windows at allocFB - (aperture - 0x200000); compensate
+                // at every consumer of the composed BAR1 address.
+                NvU64 fbAp   = pDmaMappingInfo->FbAperture[gpuSubDevInst];
+                NvU64 skew   = (fbAp >= 0x200000ULL) ? (fbAp - 0x200000ULL) : 0;
+                bar1PhysAddr = gpumgrGetGpuPhysFbAddr(pGpu) + fbAp + skew;
+                // DBG-INSTRUMENTATION: remove after P3
+                NV_PRINTF(LEVEL_ERROR,
+                          "DBG virtmem cpu-map: gpu=%u gpa=0x%llx fbAp=0x%llx skew=0x%llx addr=0x%llx\n",
+                          gpuGetInstance(pGpu), gpumgrGetGpuPhysFbAddr(pGpu),
+                          fbAp, skew, bar1PhysAddr);
+            }
             status = osMapPciMemoryKernelOld(pGpu, bar1PhysAddr,
                                              pDmaMappingInfo->pMemDesc->Size,
                                              NV_PROTECT_READ_WRITE,
