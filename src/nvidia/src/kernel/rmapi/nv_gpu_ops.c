@@ -3778,12 +3778,41 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
             rmDeviceGpuLocksAcquire(pRemoteGpu, GPUS_LOCK_FLAGS_NONE, RM_LOCK_MODULES_P2P));
     }
 
+    // align1: request a 2MB-page mapping. Rationale: GSP binds the dynamic
+    // window at 2MB granularity (empirical law, 8/8 exact incl. byte-exact
+    // bucket edges):
+    //     landing = allocFB + 2MB*floor((range0+comp)/2MB) - range0
+    // so the binding skew S = 0 IFF range0 (the BAR1 VA placement) is
+    // 2MB-aligned. The generic BAR1 path clamps VA alignment to 64KB
+    // (nvidia_p2p_get_pages/RmMapMemory expectations, virt_mem_allocator
+    // "bIsBar1" clamp) which is exactly what made duanyll's Method-3 corrupt
+    // on 32G-BAR1 3080s while working on his 32G-BAR1-window 4090s (his
+    // placements happened to land 2MB-aligned = allocator luck).
+    // Requesting PAGE_SIZE_2M: PAGE_SIZE_2M -> OS46 _HUGE -> RM_PAGE_SIZE_HUGE
+    // == 2MB; vaAlign = max(pageSize, compAlign) then raises the VA allocation
+    // alignment to 2MB (the bIsBar1 clamp is NV_MAX, i.e. a floor). PTE page
+    // size follows the same 2MB request; contiguous 2MB-aligned allocations
+    // pass the physPageSize check. If the request cannot be honored
+    // (fragmentation / non-contiguous alloc), fall back to the legacy 64KB-
+    // phase window; the skew compensation below then applies best-effort.
     status = kbusMapFbAperture_HAL(pRemoteGpu, pRemoteKernelBus,
                                    pAllocMemDesc,
                                    mrangeMake(0, mapSize),
                                    &memArea,
-                                   BUS_MAP_FB_FLAGS_MAP_UNICAST,
+                                   BUS_MAP_FB_FLAGS_MAP_UNICAST |
+                                       BUS_MAP_FB_FLAGS_PAGE_SIZE_2M,
                                    NULL);
+
+    if (status != NV_OK)
+    {
+        // align1 fallback: 2MB-aligned VA unavailable — legacy 64KB-phase map.
+        status = kbusMapFbAperture_HAL(pRemoteGpu, pRemoteKernelBus,
+                                       pAllocMemDesc,
+                                       mrangeMake(0, mapSize),
+                                       &memArea,
+                                       BUS_MAP_FB_FLAGS_MAP_UNICAST,
+                                       NULL);
+    }
 
     if (!bRemoteLockTaken)
         rmDeviceGpuLocksRelease(pRemoteGpu, GPUS_LOCK_FLAGS_NONE, NULL);
@@ -3844,16 +3873,21 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
     }
     portMemSet(pMap, 0, sizeof(*pMap));
     //
-    // METHOD3 (window FB-binding skew fix, ACTIVATED 2026-09-17 with user
-    // approval): GSP binds window VA [range0+y] to FB
-    //   allocFB + 0x200000 - range0 + y        (observed, 610 AND 615)
-    // so PTEs encoded at the raw window base land (range0 - 0x200000) below
-    // the allocation -- the exact corruption fingerprint. Compensate the
-    // encode base by the same amount so DMA lands on the allocation itself.
-    // Static path untouched (no window, no skew).
+    // METHOD3 window FB-binding skew compensation (align1, 2026-09-17):
+    // GSP binds window VA [w] to FB allocFB + 2MB*floor(w/2MB) - range0
+    // (law confirmed 8/8, byte-exact edges). With a 2MB-aligned range0
+    // (align1 request above) the quantization is exact and NO compensation
+    // is needed: encoding at the raw window base lands on the allocation.
+    // For a legacy 64KB-phase window (fallback path), encode at the nearer
+    // 2MB bucket edge: comp = 0 (skew -residue) when residue <= 1MB, else
+    // comp = 2MB - residue (skew +2MB - residue); either way the encode base
+    // stays inside the window and |skew| <= 1MB, the encode-side minimum.
     //
-    if (memArea.pRanges[0].start >= 0x200000ULL)
-        dmaBase += memArea.pRanges[0].start - 0x200000ULL;
+    {
+        NvU64 residue = memArea.pRanges[0].start & 0x1FFFFFULL;
+        if (residue > 0x100000ULL)
+            dmaBase += 0x200000ULL - residue;
+    }
     //
     // P3 calibration sweep knob (see kernel-open/nvidia/nv.c): extra
     // runtime-tunable delta on top of the formula compensation, so the GSP
