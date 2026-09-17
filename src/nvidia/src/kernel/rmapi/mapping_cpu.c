@@ -22,6 +22,7 @@
  */
 
 #include "core/core.h"
+#include "p3_probe.h"
 #include "core/locks.h"
 #include "core/thread_state.h"
 #include "os/os.h"
@@ -539,8 +540,8 @@ memMap_IMPL
 
         // DBG-INSTRUMENTATION (P3 observe-only). Remove after P3.
         if (!kbusIsBar1PhysicalModeEnabled(pKernelBus))
-            NV_PRINTF(LEVEL_ERROR,
-                      "DBG mapcpu: gpu=%u gpa=0x%llx va=0x%llx len=0x%llx\n",
+            P3_PROBE(P3_TAG_HOT,
+                      "mapcpu: gpu=%u gpa=0x%llx va=0x%llx len=0x%llx",
                       gpuGetInstance(pGpu), gpumgrGetGpuPhysFbAddr(pGpu),
                       gpuVirtAddr, pMapParams->length);
         //

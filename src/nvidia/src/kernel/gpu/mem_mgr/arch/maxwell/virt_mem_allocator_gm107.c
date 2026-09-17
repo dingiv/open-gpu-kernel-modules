@@ -114,6 +114,7 @@
 #include "rmapi/client.h"
 #include "nvrm_registry.h"
 #include "gpu/mem_mgr/virt_mem_allocator.h"
+#include "p3_probe.h"
 #include "gpu/bif/kernel_bif.h"
 #include "core/system.h"
 #include "core/thread_state.h"
@@ -949,6 +950,9 @@ dmaAllocMapping_GM107
                 (pLocals->mapLength >= RM_PAGE_SIZE_2M) ? RM_PAGE_SIZE_2M
                                                         : pLocals->vaspaceBigPageSize);
             vaSize  = RM_ALIGN_UP(pLocals->mapLength, vaAlign);
+            P3_PROBE(P3_TAG_APERT,
+                     "bar1 vaAlign: mapLength=0x%llx pageSize=0x%llx vaAlign=0x%llx vaSize=0x%llx",
+                     pLocals->mapLength, pLocals->pageSize, vaAlign, vaSize);
         }
         if (FLD_TEST_DRF(OS46, _FLAGS, _DMA_OFFSET_FIXED, _TRUE, flags))
         {

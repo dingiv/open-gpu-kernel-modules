@@ -37,6 +37,7 @@
 #include "nv-msi.h"
 #include "nv-pci-table.h"
 #include "nv-chardev-numbers.h"
+#include "p3_probe.h"
 
 #if defined(NV_UVM_ENABLE)
 #include "nv_uvm_interface.h"
@@ -143,6 +144,44 @@ MODULE_PARM_DESC(nv_dynbar1_calib, "dynbar1 window encode extra delta in bytes (
 unsigned long long nv_dynbar1_delta = 0;
 module_param(nv_dynbar1_delta, ullong, 0644);
 MODULE_PARM_DESC(nv_dynbar1_delta, "dynbar1 window FB-offset delta in bytes (debug)");
+
+/*
+ * P3 probe framework runtime control (only present with METHOD3_PROBES=1;
+ * see src/nvidia/inc/p3_probe.h for the tag definitions).
+ */
+#if defined(NV_P3_PROBES)
+NvU64 nv_p3_tags = P3_TAG_ALL;
+module_param(nv_p3_tags, ullong, 0644);
+MODULE_PARM_DESC(nv_p3_tags, "P3 probe tag bitmask (bit0=MAP bit1=PTE bit2=PAGE "
+                              "bit3=APERT bit4=PEERQ bit5=HOT)");
+
+static NvU32 nv_p3_first = 16;
+module_param(nv_p3_first, uint, 0644);
+MODULE_PARM_DESC(nv_p3_first, "P3 probes: print first N hits per callsite");
+
+static NvU32 nv_p3_every = 4096;
+module_param(nv_p3_every, uint, 0644);
+MODULE_PARM_DESC(nv_p3_every, "P3 probes: then print every Mth hit (0 = never)");
+
+int nv_p3_pid(void)
+{
+    return current ? current->pid : 0;
+}
+
+NvBool nv_p3_ok(NvU64 tag, NvU32 *pCount)
+{
+    NvU32 c;
+
+    if ((nv_p3_tags & tag) == 0)
+        return NV_FALSE;
+
+    c = (*pCount)++;
+    if (c < nv_p3_first)
+        return NV_TRUE;
+
+    return (nv_p3_every != 0) && ((c - nv_p3_first) % nv_p3_every == 0);
+}
+#endif  /* NV_P3_PROBES */
 
 MODULE_INFO(supported, "external");
 MODULE_VERSION(NV_VERSION_STRING);

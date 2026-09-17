@@ -137,6 +137,16 @@ CFLAGS += -DNV_PRINTF_STRINGS_ALLOWED=1
 CFLAGS += -DNV_ASSERT_FAILED_USES_STRINGS=1
 CFLAGS += -DPORT_ASSERT_FAILED_USES_STRINGS=1
 
+#
+# P3 probe framework (compile-time master switch):
+#   make METHOD3_PROBES=1  -> instrument nv-kernel.o with tagged, throttled probes
+#   default                -> probe code compiled out entirely
+# Runtime (when compiled in): /sys/module/nvidia/parameters/nv_p3_{tags,first,every}
+#
+ifeq ($(METHOD3_PROBES),1)
+CFLAGS += -DNV_P3_PROBES=1
+endif
+
 ifeq ($(DEBUG),1)
   CFLAGS += -gsplit-dwarf
 endif

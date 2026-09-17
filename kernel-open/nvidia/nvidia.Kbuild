@@ -56,6 +56,14 @@ NVIDIA_CFLAGS += -I$(src)/nvidia
 NVIDIA_CFLAGS += -DNVIDIA_UNDEF_LEGACY_BIT_MACROS
 NVIDIA_CFLAGS += -DLIBSPDM_CONFIG=\"nvspdm_rmconfig.h\"
 
+#
+# P3 probe framework (compile-time master switch) — see src/nvidia/inc/p3_probe.h
+#
+ifeq ($(METHOD3_PROBES),1)
+ NVIDIA_CFLAGS += -DNV_P3_PROBES=1
+ NVIDIA_CFLAGS += -I$(src)/../src/nvidia/inc
+endif
+
 ifeq ($(NV_BUILD_TYPE),release)
  NVIDIA_CFLAGS += -UDEBUG -U_DEBUG -DNDEBUG
 endif

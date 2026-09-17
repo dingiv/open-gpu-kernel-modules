@@ -22,6 +22,7 @@
  */
 
 #include "core/prelude.h"
+#include "p3_probe.h"
 
 
 #include <class/cl0002.h>
@@ -3115,6 +3116,14 @@ static NV_STATUS getSystemP2PCaps(struct gpuDevice *device1,
     p2pCaps->atomicSupported = !!REF_VAL(NV0000_CTRL_SYSTEM_GET_P2P_CAPS_ATOMICS_SUPPORTED, p2pCapsParams->p2pCaps);
     p2pCaps->bar1Supported = !!REF_VAL(NV0000_CTRL_SYSTEM_GET_P2P_CAPS_PCI_BAR1_SUPPORTED, p2pCapsParams->p2pCaps);
 
+    P3_PROBE(P3_TAG_PEERQ,
+             "V2 caps: raw=0x%llx bar1=%d nl=%d W=%d R=%d",
+             (NvU64)p2pCapsParams->p2pCaps,
+             (NvU32)p2pCaps->bar1Supported,
+             (NvU32)p2pCaps->nvlinkSupported,
+             (NvU32)REF_VAL(NV0000_CTRL_SYSTEM_GET_P2P_CAPS_WRITES_SUPPORTED, p2pCapsParams->p2pCaps),
+             (NvU32)REF_VAL(NV0000_CTRL_SYSTEM_GET_P2P_CAPS_READS_SUPPORTED, p2pCapsParams->p2pCaps));
+
     // TODO: Bug 1768805: Check both reads and writes since RM seems to be
     //       currently incorrectly reporting just the P2P write cap on some
     //       systems that cannot support P2P at all. See the bug for more
@@ -3412,12 +3421,11 @@ cleanup:
     portMemFree(nvlinkStatus1);
     portMemFree(nvlinkStatus2);
 
-    // DBG-INSTRUMENTATION (P3 observe-only): what the UMD actually receives.
-    NV_PRINTF(LEVEL_ERROR,
-              "DBG P2PCaps: bar1Dma[0]=0x%llx sz=0x%llx bar1Dma[1]=0x%llx sz=0x%llx link=%u\n",
-              p2pCapsParams->bar1DmaAddress[0], p2pCapsParams->bar1DmaSize[0],
-              p2pCapsParams->bar1DmaAddress[1], p2pCapsParams->bar1DmaSize[1],
-              p2pCapsParams->p2pLink);
+    P3_PROBE(P3_TAG_PEERQ,
+             "P2PCaps: bar1Dma[0]=0x%llx sz=0x%llx bar1Dma[1]=0x%llx sz=0x%llx link=%u",
+             p2pCapsParams->bar1DmaAddress[0], p2pCapsParams->bar1DmaSize[0],
+             p2pCapsParams->bar1DmaAddress[1], p2pCapsParams->bar1DmaSize[1],
+             p2pCapsParams->p2pLink);
 
     return status;
 }
@@ -3762,11 +3770,11 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
         (mapSize > bar1Size - DYN_BAR1_P2P_RESERVE) ||
         (rmSubDevice->dynBar1MappedBytes > bar1Size - DYN_BAR1_P2P_RESERVE - mapSize))
     {
-        NV_PRINTF(LEVEL_ERROR,
-                  "METHOD3: dynamic BAR1 P2P budget exceeded on GPU%u: mapped 0x%llx + "
-                  "0x%llx + reserve 0x%llx > BAR1 0x%llx\n",
-                  gpuGetInstance(pRemoteGpu), rmSubDevice->dynBar1MappedBytes,
-                  mapSize, DYN_BAR1_P2P_RESERVE, bar1Size);
+        P3_PROBE(P3_TAG_MAP,
+                 "window REJECT budget: gpu=%u mapped=0x%llx mapSize=0x%llx "
+                 "reserve=0x%llx bar1=0x%llx",
+                 gpuGetInstance(pRemoteGpu), rmSubDevice->dynBar1MappedBytes,
+                 mapSize, DYN_BAR1_P2P_RESERVE, bar1Size);
         return NV_ERR_INSUFFICIENT_RESOURCES;
     }
 
@@ -3799,11 +3807,10 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
 
     if (status != NV_OK)
     {
-        NV_PRINTF(LEVEL_ERROR,
-                  "METHOD3: dynamic BAR1 P2P map GPU%u->GPU%u hMem 0x%x size 0x%llx "
-                  "failed (0x%x); BAR1 VA exhausted/fragmented?\n",
-                  gpuGetInstance(pMappingGpu), gpuGetInstance(pRemoteGpu),
-                  hDupMemory, mapSize, status);
+        P3_PROBE(P3_TAG_MAP,
+                 "window map FAILED: gpu%d->gpu%d hMem=0x%x size=0x%llx status=0x%x",
+                 gpuGetInstance(pMappingGpu), gpuGetInstance(pRemoteGpu),
+                 hDupMemory, mapSize, status);
         return status;
     }
 
@@ -3902,6 +3909,21 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
               gpuGetInstance(pMappingGpu), gpuGetInstance(pRemoteGpu), hDupMemory,
               mapSize, memArea.pRanges[0].start, dmaBase, rmSubDevice->dynBar1MappedBytes);
 
+    //
+    // P3 probe: the alignment-critical values in one line. range0 phase,
+    // delta and the final encode base are exactly the law-v3 inputs.
+    //
+    {
+        extern unsigned long long nv_dynbar1_delta;
+        extern unsigned long long nv_dynbar1_calib;
+        P3_PROBE(P3_TAG_MAP,
+                 "window map: range0=0x%llx residue=%llu delta=%llu calib=%llu "
+                 "dmaBase=0x%llx size=0x%llx",
+                 memArea.pRanges[0].start,
+                 memArea.pRanges[0].start & 0x1FFFFFULL,
+                 nv_dynbar1_delta, nv_dynbar1_calib, dmaBase, mapSize);
+    }
+
     *pWindowDmaBase = dmaBase;
     return NV_OK;
 
@@ -3974,9 +3996,9 @@ _nvGpuOpsDynBar1Destroy(subDeviceDesc *rmSubDevice, NvHandle hDupMemory)
     if (pMap == NULL)
         return;
 
-    NV_PRINTF(LEVEL_INFO,
-              "METHOD3: dynamic BAR1 P2P unmap GPU%u hMem 0x%x size 0x%llx\n",
-              gpuGetInstance(pMap->pRemoteGpu), hDupMemory, pMap->size);
+    P3_PROBE(P3_TAG_MAP,
+             "window UNMAP: gpu=%u hMem=0x%x size=0x%llx",
+             gpuGetInstance(pMap->pRemoteGpu), hDupMemory, pMap->size);
 
     // Release source IOMMU mapping + window descriptor, then remote BAR1 mapping.
     memdescUnmapIommu(pMap->pWindowMemDesc, pMap->iovaspaceId);
@@ -4304,6 +4326,10 @@ _nvGpuOpsEncodeBar1P2PAddrs
 {
     NvU64 i;
 
+    P3_PROBE(P3_TAG_PTE,
+             "encode: base=0x%llx dmaSize=0x%llx pageSize=0x%llx count=%llu",
+             dmaBaseAddress, dmaSize, pageSize, count);
+
     for (i = 0; i < count; i++)
     {
         NvU64 offset = pAddresses[i];
@@ -4321,6 +4347,9 @@ _nvGpuOpsEncodeBar1P2PAddrs
         }
 
         pAddresses[i] = encodedAddress;
+        P3_PROBE(P3_TAG_PAGE,
+                 "enc[%llu] off=0x%llx -> 0x%llx",
+                 i, offset, encodedAddress);
     }
 
     return NV_OK;
@@ -4375,15 +4404,13 @@ nvGpuOpsBuildExternalAllocPtes
     NV_STATUS               status              = NV_OK;
     const GMMU_FMT         *pFmt                = NULL;
 
-    // DBG-INSTRUMENTATION (P3 observe-only): entry probe -- distinguishes
-    // "not called" from "early return". Remove after P3.
-    NV_PRINTF(LEVEL_ERROR,
-              "DBG Ptes entry: map=GPU%u owner=GPU%u off=0x%llx size=0x%llx peer=%u bar1=%u dyn=%u base=0x%llx mapInfo=%s\n",
-              gpuGetInstance(pMappingGpu),
-              (pMemDesc->pGpu != NULL) ? gpuGetInstance(pMemDesc->pGpu) : 0xFF,
-              offset, size, isPeerSupported, isBar1P2PSupported,
-              bDynBar1Mapped, dynBar1DmaBase,
-              (pGpuExternalMappingInfo != NULL) ? "Y" : "N");
+    P3_PROBE(P3_TAG_PTE,
+             "Ptes entry: map=GPU%u owner=GPU%u off=0x%llx size=0x%llx peer=%u bar1=%u dyn=%u base=0x%llx mapInfo=%s",
+             gpuGetInstance(pMappingGpu),
+             (pMemDesc->pGpu != NULL) ? gpuGetInstance(pMemDesc->pGpu) : 0xFF,
+             offset, size, isPeerSupported, isBar1P2PSupported,
+             bDynBar1Mapped, dynBar1DmaBase,
+             (pGpuExternalMappingInfo != NULL) ? "Y" : "N");
     const GMMU_FMT_PTE     *pPteFmt             = NULL;
     const MMU_FMT_LEVEL    *pLevelFmt           = NULL;
     GMMU_APERTURE           aperture;
@@ -4877,14 +4904,13 @@ nvGpuOpsBuildExternalAllocPhysAddrs
     NV_STATUS               status              = NV_OK;
     GMMU_APERTURE           aperture;
 
-    // DBG-INSTRUMENTATION (P3 observe-only): entry probe. Remove after P3.
-    NV_PRINTF(LEVEL_ERROR,
-              "DBG PhysAddrs entry: map=GPU%u owner=GPU%u off=0x%llx size=0x%llx peer=%u bar1=%u dyn=%u base=0x%llx physInfo=%s\n",
-              gpuGetInstance(pMappingGpu),
-              (pMemDesc->pGpu != NULL) ? gpuGetInstance(pMemDesc->pGpu) : 0xFF,
-              offset, size, isPeerSupported, isBar1P2PSupported,
-              bDynBar1Mapped, dynBar1DmaBase,
-              (pGpuExternalPhysAddrInfo != NULL) ? "Y" : "N");
+    P3_PROBE(P3_TAG_PTE,
+             "PhysAddrs entry: map=GPU%u owner=GPU%u off=0x%llx size=0x%llx peer=%u bar1=%u dyn=%u base=0x%llx physInfo=%s",
+             gpuGetInstance(pMappingGpu),
+             (pMemDesc->pGpu != NULL) ? gpuGetInstance(pMemDesc->pGpu) : 0xFF,
+             offset, size, isPeerSupported, isBar1P2PSupported,
+             bDynBar1Mapped, dynBar1DmaBase,
+             (pGpuExternalPhysAddrInfo != NULL) ? "Y" : "N");
 
     NvU64         fabricBaseAddress   = NVLINK_INVALID_FABRIC_ADDR;
     NvU64         pageSize;
@@ -5264,6 +5290,11 @@ NV_STATUS nvGpuOpsGetExternalAllocPtesOrPhysAddrs(struct gpuAddressSpace *vaSpac
             if (status != NV_OK)
                 goto freeGpaMemdesc;
 
+            P3_PROBE(P3_TAG_PEERQ,
+                     "ExtAlloc P2pInfo: peer=%d bar1=%d indirect=%d peerId=%d",
+                     (NvU32)isPeerSupported, (NvU32)isBar1P2PSupported,
+                     (NvU32)isIndirectPeerSupported, peerId);
+
             if (isBar1P2PSupported &&
                 !kbusIsStaticBar1Enabled(pAdjustedMemDesc->pGpu,
                                           GPU_GET_KERNEL_BUS(pAdjustedMemDesc->pGpu)))
@@ -5275,7 +5306,12 @@ NV_STATUS nvGpuOpsGetExternalAllocPtesOrPhysAddrs(struct gpuAddressSpace *vaSpac
                                                       hMemory,
                                                       &dynBar1DmaBase);
                 if (status != NV_OK)
+                {
+                    P3_PROBE(P3_TAG_PEERQ, "DynBar1GetOrCreate fail: 0x%x", status);
                     goto freeGpaMemdesc;
+                }
+                P3_PROBE(P3_TAG_PEERQ, "DynBar1GetOrCreate ok: base=0x%llx",
+                         dynBar1DmaBase);
 
                 // IOVA zero is valid; mode must not depend on the window address.
                 dynBar1Mapped = NV_TRUE;
@@ -9006,8 +9042,7 @@ NV_STATUS nvGpuOpsDupMemory(struct gpuDevice *device,
                             gpuMemoryInfo *pGpuMemoryInfo)
 {
     NV_STATUS dbgStatus;
-    // DBG-INSTRUMENTATION (P3 observe-only). Remove after P3.
-    NV_PRINTF(LEVEL_ERROR, "DBG DupMemory entry: hMem=0x%x\n", hPhysMemory);
+    P3_PROBE(P3_TAG_PEERQ, "DupMemory entry: hMem=0x%x", hPhysMemory);
     dbgStatus = dupMemory(device,
                      hClient,
                      hPhysMemory,
@@ -9015,10 +9050,10 @@ NV_STATUS nvGpuOpsDupMemory(struct gpuDevice *device,
                      hDupMemory,
                      pGpuMemoryInfo);
     if (dbgStatus == NV_OK && pGpuMemoryInfo != NULL)
-        NV_PRINTF(LEVEL_ERROR,
-                  "DBG DupMemory exit: hDup=0x%x sysmem=%u pageSize=0x%llx contig=%u\n",
-                  *hDupMemory, (NvU32)pGpuMemoryInfo->sysmem,
-                  pGpuMemoryInfo->pageSize, (NvU32)pGpuMemoryInfo->contig);
+        P3_PROBE(P3_TAG_PEERQ,
+                 "DupMemory exit: hDup=0x%x sysmem=%u pageSize=0x%llx contig=%u",
+                 *hDupMemory, (NvU32)pGpuMemoryInfo->sysmem,
+                 pGpuMemoryInfo->pageSize, (NvU32)pGpuMemoryInfo->contig);
     return dbgStatus;
 }
 
@@ -11895,6 +11930,9 @@ static NV_STATUS _nvGpuOpsP2pObjectCreate(struct gpuDevice *device1,
     hTemp = NV01_NULL_OBJECT;
     status = pRmApi->Alloc(pRmApi, session->handle, session->handle, &hTemp,
                            NV50_P2P, &p2pAllocParams, sizeof(p2pAllocParams));
+    P3_PROBE(P3_TAG_PEERQ,
+             "P2pObjectCreate gpuId0=0x%x gpuId1=0x%x access=%d status=0x%x",
+             device1->gpuId, device2->gpuId, (NvU32)p2pCaps.accessSupported, status);
     if (status == NV_OK)
         *hP2pObject = hTemp;
 

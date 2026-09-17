@@ -25,6 +25,7 @@
 #include "gpu/conf_compute/conf_compute.h"
 #include "gpu/gpu.h"
 #include "gpu/device/device.h"
+#include "p3_probe.h"
 #include "gpu/mmu/kern_gmmu.h"
 #include "gpu/bus/kern_bus.h"
 #include "gpu/bif/kernel_bif.h"
@@ -2978,6 +2979,11 @@ outer_loop:
         NV_ASSERT_TRUE_OR_GOTO(status, ppVaToType != NULL, NV_ERR_NO_MEMORY, map_cleanup);
         *ppVaToType = pType;
 
+        P3_PROBE(P3_TAG_APERT,
+                 "bar1 placement: va=0x%llx fbOff=0x%llx len=0x%llx res2M=%llu",
+                 mapRange.start, physRange.start, curMappingSize,
+                 mapRange.start & 0x1FFFFFULL);
+
         NV_ASSERT_OK_OR_GOTO(status, pCallback(pToken, physRange.start, mapRange.start, curMappingSize), va_cleanup);
 
         physRange.start += curMappingSize;
@@ -3358,6 +3364,11 @@ kbusUnmapFbAperture_GM107
 
     // Delete map and supermap if we reduce refcount to 0.
     pMappingType->refCount--;
+    P3_PROBE(P3_TAG_MAP,
+             "bar1 unmap: va=0x%llx len=0x%llx refCount=%u",
+             memArea.pRanges[0].start,
+             (memArea.numRanges > 0) ? memArea.pRanges[0].size : 0,
+             pMappingType->refCount);
     if (pMappingType->refCount == 0)
     {
         mapRemove(&pSubmap->mappingSubmap, pMappingType);
