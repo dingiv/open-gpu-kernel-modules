@@ -40,6 +40,7 @@
  * runtime tag mask and the per-callsite first-N/every-M throttle.
  */
 NvBool nv_p3_ok(NvU64 tag, NvU32 *pCount);
+int nv_p3_pid(void);
 
 #define P3_PROBE(tag, fmt, ...)                                              \
     do                                                                       \
@@ -47,7 +48,8 @@ NvBool nv_p3_ok(NvU64 tag, NvU32 *pCount);
         static NvU32 p3Cnt_;                                                 \
         if (nv_p3_ok((tag), &p3Cnt_))                                        \
         {                                                                    \
-            NV_PRINTF(LEVEL_ERROR, "P3[%s] " fmt, __func__, ##__VA_ARGS__);  \
+            NV_PRINTF(LEVEL_ERROR, "P3[%s p%d] " fmt, __func__,              \
+                      nv_p3_pid(), ##__VA_ARGS__);                           \
         }                                                                    \
     } while (0)
 

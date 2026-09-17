@@ -163,6 +163,11 @@ static NvU32 nv_p3_every = 4096;
 module_param(nv_p3_every, uint, 0644);
 MODULE_PARM_DESC(nv_p3_every, "P3 probes: then print every Mth hit (0 = never)");
 
+int nv_p3_pid(void)
+{
+    return current ? current->pid : 0;
+}
+
 NvBool nv_p3_ok(NvU64 tag, NvU32 *pCount)
 {
     NvU32 c;
