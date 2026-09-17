@@ -129,6 +129,21 @@ unsigned long long nv_dynbar1_calib = 0;
 module_param(nv_dynbar1_calib, ullong, 0644);
 MODULE_PARM_DESC(nv_dynbar1_calib, "dynbar1 window encode extra delta in bytes (debug)");
 
+//
+// align2 (P3): FB-offset of the dynamic-window aperture mapping (bytes).
+// Law v2 (12/12 exact): landing(w0) = allocFB + 0x70000
+//     + 2MB*(floor(w0/2MB) - ceil(range0/2MB))
+// where w0 = range0 + comp is the encoded base and 0x70000 is an absolute
+// GSP constant (independent of range0/comp/PTE size/build/boot). With the
+// legacy 64KB-phase window (misaligned range0), comp=0 gives
+// floor(w0/2MB) - ceil(range0/2MB) = -1, so mapping the aperture at FB
+// offset delta = 0x190000 (2MB - 0x70000) makes the anchor land EXACTLY on
+// allocFB. Takes effect at the NEXT dynamic-window creation.
+//
+unsigned long long nv_dynbar1_delta = 0x190000;
+module_param(nv_dynbar1_delta, ullong, 0644);
+MODULE_PARM_DESC(nv_dynbar1_delta, "dynbar1 window FB-offset delta in bytes (debug)");
+
 MODULE_INFO(supported, "external");
 MODULE_VERSION(NV_VERSION_STRING);
 MODULE_DESCRIPTION("NVIDIA core GPU kernel module");

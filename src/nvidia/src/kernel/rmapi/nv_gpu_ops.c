@@ -3778,37 +3778,17 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
             rmDeviceGpuLocksAcquire(pRemoteGpu, GPUS_LOCK_FLAGS_NONE, RM_LOCK_MODULES_P2P));
     }
 
-    // align1: request a 2MB-page mapping. Rationale: GSP binds the dynamic
-    // window at 2MB granularity (empirical law, 8/8 exact incl. byte-exact
-    // bucket edges):
-    //     landing = allocFB + 2MB*floor((range0+comp)/2MB) - range0
-    // so the binding skew S = 0 IFF range0 (the BAR1 VA placement) is
-    // 2MB-aligned. The generic BAR1 path clamps VA alignment to 64KB
-    // (nvidia_p2p_get_pages/RmMapMemory expectations, virt_mem_allocator
-    // "bIsBar1" clamp) which is exactly what made duanyll's Method-3 corrupt
-    // on 32G-BAR1 3080s while working on his 32G-BAR1-window 4090s (his
-    // placements happened to land 2MB-aligned = allocator luck).
-    // Requesting PAGE_SIZE_2M: PAGE_SIZE_2M -> OS46 _HUGE -> RM_PAGE_SIZE_HUGE
-    // == 2MB; vaAlign = max(pageSize, compAlign) then raises the VA allocation
-    // alignment to 2MB (the bIsBar1 clamp is NV_MAX, i.e. a floor). PTE page
-    // size follows the same 2MB request; contiguous 2MB-aligned allocations
-    // pass the physPageSize check. If the request cannot be honored
-    // (fragmentation / non-contiguous alloc), fall back to the legacy 64KB-
-    // phase window; the skew compensation below then applies best-effort.
-    status = kbusMapFbAperture_HAL(pRemoteGpu, pRemoteKernelBus,
-                                   pAllocMemDesc,
-                                   mrangeMake(0, mapSize),
-                                   &memArea,
-                                   BUS_MAP_FB_FLAGS_MAP_UNICAST |
-                                       BUS_MAP_FB_FLAGS_PAGE_SIZE_2M,
-                                   NULL);
-
-    if (status != NV_OK)
+    // align2: legacy 64KB-phase window (NO PAGE_SIZE_2M — the recipe requires
+    // a misaligned range0, see the law v2 comment at nv_dynbar1_delta in
+    // nv.c) mapped at FB offset nv_dynbar1_delta.
     {
-        // align1 fallback: 2MB-aligned VA unavailable — legacy 64KB-phase map.
+        extern unsigned long long nv_dynbar1_delta;
+        NvU64 delta = nv_dynbar1_delta;
+        if (delta >= mapSize)
+            delta = 0;
         status = kbusMapFbAperture_HAL(pRemoteGpu, pRemoteKernelBus,
                                        pAllocMemDesc,
-                                       mrangeMake(0, mapSize),
+                                       mrangeMake(delta, mapSize - delta),
                                        &memArea,
                                        BUS_MAP_FB_FLAGS_MAP_UNICAST,
                                        NULL);
@@ -3873,20 +3853,22 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
     }
     portMemSet(pMap, 0, sizeof(*pMap));
     //
-    // METHOD3 window FB-binding skew compensation (align1, 2026-09-17):
-    // GSP binds window VA [w] to FB allocFB + 2MB*floor(w/2MB) - range0
-    // (law confirmed 8/8, byte-exact edges). With a 2MB-aligned range0
-    // (align1 request above) the quantization is exact and NO compensation
-    // is needed: encoding at the raw window base lands on the allocation.
-    // For a legacy 64KB-phase window (fallback path), encode at the nearer
-    // 2MB bucket edge: comp = 0 (skew -residue) when residue <= 1MB, else
-    // comp = 2MB - residue (skew +2MB - residue); either way the encode base
-    // stays inside the window and |skew| <= 1MB, the encode-side minimum.
+    // METHOD3 window FB-binding (align2, 2026-09-17): law v2
+    //   landing(w0) = mappedFB + 0x70000 + 2MB*(floor(w0/2MB) - ceil(range0/2MB))
+    // with w0 = range0 + comp. Legacy 64KB-phase window => range0 misaligned
+    // => floor == ceil - 1, so with comp = 0 and mappedFB = allocFB + delta:
+    //   landing(w0) = allocFB + delta + 0x70000 - 2MB = allocFB  (delta=0x190000)
+    // EXACT — no encode-side compensation. (An aligned range0 would pin
+    // floor == ceil and keep an irreducible +0x70000; that is why the map
+    // above deliberately stays 64KB-phase. Log loudly if the allocator ever
+    // hands us a 2MB-aligned range0.)
     //
+    if ((memArea.pRanges[0].start & 0x1FFFFFULL) == 0)
     {
-        NvU64 residue = memArea.pRanges[0].start & 0x1FFFFFULL;
-        if (residue > 0x100000ULL)
-            dmaBase += 0x200000ULL - residue;
+        NV_PRINTF(LEVEL_ERROR,
+                  "METHOD3: align2 got 2MB-ALIGNED range0 0x%llx — binding will "
+                  "skew by +0x200000; report this (allocator phase changed?)\n",
+                  memArea.pRanges[0].start);
     }
     //
     // P3 calibration sweep knob (see kernel-open/nvidia/nv.c): extra
