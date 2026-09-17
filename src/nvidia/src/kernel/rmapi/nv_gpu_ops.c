@@ -3762,11 +3762,11 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
         (mapSize > bar1Size - DYN_BAR1_P2P_RESERVE) ||
         (rmSubDevice->dynBar1MappedBytes > bar1Size - DYN_BAR1_P2P_RESERVE - mapSize))
     {
-        NV_PRINTF(LEVEL_ERROR,
-                  "METHOD3: dynamic BAR1 P2P budget exceeded on GPU%u: mapped 0x%llx + "
-                  "0x%llx + reserve 0x%llx > BAR1 0x%llx\n",
-                  gpuGetInstance(pRemoteGpu), rmSubDevice->dynBar1MappedBytes,
-                  mapSize, DYN_BAR1_P2P_RESERVE, bar1Size);
+        P3_PROBE(P3_TAG_MAP,
+                 "window REJECT budget: gpu=%u mapped=0x%llx mapSize=0x%llx "
+                 "reserve=0x%llx bar1=0x%llx",
+                 gpuGetInstance(pRemoteGpu), rmSubDevice->dynBar1MappedBytes,
+                 mapSize, DYN_BAR1_P2P_RESERVE, bar1Size);
         return NV_ERR_INSUFFICIENT_RESOURCES;
     }
 
@@ -3799,11 +3799,10 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
 
     if (status != NV_OK)
     {
-        NV_PRINTF(LEVEL_ERROR,
-                  "METHOD3: dynamic BAR1 P2P map GPU%u->GPU%u hMem 0x%x size 0x%llx "
-                  "failed (0x%x); BAR1 VA exhausted/fragmented?\n",
-                  gpuGetInstance(pMappingGpu), gpuGetInstance(pRemoteGpu),
-                  hDupMemory, mapSize, status);
+        P3_PROBE(P3_TAG_MAP,
+                 "window map FAILED: gpu%d->gpu%d hMem=0x%x size=0x%llx status=0x%x",
+                 gpuGetInstance(pMappingGpu), gpuGetInstance(pRemoteGpu),
+                 hDupMemory, mapSize, status);
         return status;
     }
 
@@ -3989,9 +3988,9 @@ _nvGpuOpsDynBar1Destroy(subDeviceDesc *rmSubDevice, NvHandle hDupMemory)
     if (pMap == NULL)
         return;
 
-    NV_PRINTF(LEVEL_INFO,
-              "METHOD3: dynamic BAR1 P2P unmap GPU%u hMem 0x%x size 0x%llx\n",
-              gpuGetInstance(pMap->pRemoteGpu), hDupMemory, pMap->size);
+    P3_PROBE(P3_TAG_MAP,
+             "window UNMAP: gpu=%u hMem=0x%x size=0x%llx",
+             gpuGetInstance(pMap->pRemoteGpu), hDupMemory, pMap->size);
 
     // Release source IOMMU mapping + window descriptor, then remote BAR1 mapping.
     memdescUnmapIommu(pMap->pWindowMemDesc, pMap->iovaspaceId);

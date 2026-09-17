@@ -3364,6 +3364,11 @@ kbusUnmapFbAperture_GM107
 
     // Delete map and supermap if we reduce refcount to 0.
     pMappingType->refCount--;
+    P3_PROBE(P3_TAG_MAP,
+             "bar1 unmap: va=0x%llx len=0x%llx refCount=%u",
+             memArea.pRanges[0].start,
+             (memArea.numRanges > 0) ? memArea.pRanges[0].size : 0,
+             pMappingType->refCount);
     if (pMappingType->refCount == 0)
     {
         mapRemove(&pSubmap->mappingSubmap, pMappingType);
