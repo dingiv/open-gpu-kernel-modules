@@ -539,45 +539,24 @@ memMap_IMPL
 
         if (pMapParams->bKernel)
         {
-            // METHOD3 (window FB-binding skew): gpuVirtAddr is a BAR1 window
-            // offset when BAR1 physical (identity) mode is off; GSP binds such
-            // windows at allocFB - (offset - 0x200000). Compensate.
-            NvU64 bar1Va = (kbusIsBar1PhysicalModeEnabled(pKernelBus)) ? 0 :
-                           gpuVirtAddr + ((gpuVirtAddr >= 0x200000ULL) ?
-                                          (gpuVirtAddr - 0x200000ULL) : 0);
             rmStatus = osMapPciMemoryKernel64(pGpu,
                                               (kbusIsBar1PhysicalModeEnabled(pKernelBus)?
-                                              fbAddr: gpumgrGetGpuPhysFbAddr(pGpu) + bar1Va),
+                                              fbAddr: gpumgrGetGpuPhysFbAddr(pGpu) + gpuVirtAddr),
                                               pMapParams->length,
                                               pMapParams->protect,
                                               pMapParams->ppCpuVirtAddr,
                                               cachingType);
-            // DBG-INSTRUMENTATION: remove after P3
-            if (!kbusIsBar1PhysicalModeEnabled(pKernelBus))
-                NV_PRINTF(LEVEL_ERROR,
-                          "DBG mapcpu kernel: gpu=%u gpa=0x%llx va=0x%llx comp=0x%llx\n",
-                          gpuGetInstance(pGpu), gpumgrGetGpuPhysFbAddr(pGpu),
-                          gpuVirtAddr, bar1Va);
         }
         else if(!bUseMemArea)
         {
-            NvU64 bar1Va2 = (kbusIsBar1PhysicalModeEnabled(pKernelBus)) ? 0 :
-                            gpuVirtAddr + ((gpuVirtAddr >= 0x200000ULL) ?
-                                           (gpuVirtAddr - 0x200000ULL) : 0);
             rmStatus = osMapPciMemoryUser(pGpu->pOsGpuInfo,
                                           (kbusIsBar1PhysicalModeEnabled(pKernelBus)?
-                                          fbAddr: gpumgrGetGpuPhysFbAddr(pGpu) + bar1Va2),
+                                          fbAddr: gpumgrGetGpuPhysFbAddr(pGpu) + gpuVirtAddr),
                                           pMapParams->length,
                                           pMapParams->protect,
                                           pMapParams->ppCpuVirtAddr,
                                           &priv,
                                           cachingType);
-            // DBG-INSTRUMENTATION: remove after P3
-            if (!kbusIsBar1PhysicalModeEnabled(pKernelBus))
-                NV_PRINTF(LEVEL_ERROR,
-                          "DBG mapcpu user: gpu=%u gpa=0x%llx va=0x%llx comp=0x%llx\n",
-                          gpuGetInstance(pGpu), gpumgrGetGpuPhysFbAddr(pGpu),
-                          gpuVirtAddr, bar1Va2);
         }
         else
         {
@@ -586,17 +565,8 @@ memMap_IMPL
 
             for (idx = 0; idx < memArea.numRanges; idx++)
             {
-                // METHOD3 (window FB-binding skew): compensate memArea ranges
-                if (memArea.pRanges[idx].start >= 0x200000ULL)
-                    memArea.pRanges[idx].start +=
-                        (memArea.pRanges[idx].start - 0x200000ULL);
                 memArea.pRanges[idx].start += barAddr;
             }
-            // DBG-INSTRUMENTATION: remove after P3
-            NV_PRINTF(LEVEL_ERROR,
-                      "DBG mapcpu memarea: gpu=%u gpa=0x%llx nRanges=%llu first=0x%llx\n",
-                      gpuGetInstance(pGpu), barAddr, memArea.numRanges,
-                      memArea.pRanges[0].start);
 
             rmStatus = osMapPciMemoryAreaUser(pGpu->pOsGpuInfo,
                                           memArea,
