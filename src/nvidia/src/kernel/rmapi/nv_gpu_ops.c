@@ -3844,17 +3844,16 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
     }
     portMemSet(pMap, 0, sizeof(*pMap));
     //
-    // CANDIDATE FIX (INACTIVE — user-approved process: comment first).
-    // GSP window binding law (observed on 610 AND 615, probe-verified
-    // 2026-09-17): kbusMapFbAperture binds window VA [range0+y] to FB
-    //   allocFB - (range0 - 0x200000) + y
-    // so a PTE encoded at the window base lands (range0 - 0x200000) below
-    // the allocation (the exact corruption fingerprint, both driver
-    // versions). Compensation: add the skew to the encode base so DMA lands
-    // on the allocation itself:
+    // METHOD3 (window FB-binding skew fix, ACTIVATED 2026-09-17 with user
+    // approval): GSP binds window VA [range0+y] to FB
+    //   allocFB + 0x200000 - range0 + y        (observed, 610 AND 615)
+    // so PTEs encoded at the raw window base land (range0 - 0x200000) below
+    // the allocation -- the exact corruption fingerprint. Compensate the
+    // encode base by the same amount so DMA lands on the allocation itself.
+    // Static path untouched (no window, no skew).
     //
-    // if (memArea.pRanges[0].start >= 0x200000ULL)
-    //     dmaBase += memArea.pRanges[0].start - 0x200000ULL;
+    if (memArea.pRanges[0].start >= 0x200000ULL)
+        dmaBase += memArea.pRanges[0].start - 0x200000ULL;
     //
     pMap->hDupMemory         = hDupMemory;
     pMap->mappingGpuInstance = gpuGetInstance(pMappingGpu);
