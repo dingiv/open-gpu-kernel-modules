@@ -1083,6 +1083,21 @@ _virtmemAllocKernelMapping
                 SLI_LOOP_BREAK;
             }
 
+            // DBG-INSTRUMENTATION (P3 observe-only). Remove after P3.
+            NV_PRINTF(LEVEL_ERROR,
+                      "DBG virtmem cpu-map: gpu=%u gpa=0x%llx fbAp=0x%llx len=0x%llx\n",
+                      gpuGetInstance(pGpu), gpumgrGetGpuPhysFbAddr(pGpu),
+                      pDmaMappingInfo->FbAperture[gpuSubDevInst],
+                      pDmaMappingInfo->FbApertureLen[gpuSubDevInst]);
+            //
+            // CANDIDATE FIX (INACTIVE — fix1 lesson: static identity BAR1
+            // also yields fbAp >= 0x200000; the gate MUST be non-static
+            // owner. Activate only after the carrier is confirmed):
+            //
+            // if (!kbusIsStaticBar1Enabled(pGpu, GPU_GET_KERNEL_BUS(pGpu))) {
+            //     NvU64 fbAp = pDmaMappingInfo->FbAperture[gpuSubDevInst];
+            //     if (fbAp >= 0x200000ULL) bar1PhysAddr += (fbAp - 0x200000ULL);
+            // }
             bar1PhysAddr = gpumgrGetGpuPhysFbAddr(pGpu) + pDmaMappingInfo->FbAperture[gpuSubDevInst];
             status = osMapPciMemoryKernelOld(pGpu, bar1PhysAddr,
                                              pDmaMappingInfo->pMemDesc->Size,

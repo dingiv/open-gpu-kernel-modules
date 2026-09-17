@@ -935,9 +935,19 @@ dmaAllocMapping_GM107
         //
         // Also, RmMapMemory on PPC64LE expects BAR1 VA to be aligned at 64K.
         //
+        // align3 (P3): the GSP binds the dynamic-window aperture at 2MB
+        // granularity and drops the sub-2MB partial first page of the window
+        // (empirical law v3: dead = range0 mod 2MB, displacement = delta -
+        // residue, 6/6 delta-sweep + 12 comp-sweep points). Raise the VA
+        // ALLOCATION alignment floor to 2MB for >= 2MB mappings so a window
+        // never straddles a 2MB boundary. PTE page size is untouched (still
+        // the 64K VAS big page) — only the placement alignment changes.
+        //
         if (pLocals->bIsBar1)
         {
-            vaAlign = NV_MAX(vaAlign, pLocals->vaspaceBigPageSize);
+            vaAlign = NV_MAX(vaAlign,
+                (pLocals->mapLength >= RM_PAGE_SIZE_2M) ? RM_PAGE_SIZE_2M
+                                                        : pLocals->vaspaceBigPageSize);
             vaSize  = RM_ALIGN_UP(pLocals->mapLength, vaAlign);
         }
         if (FLD_TEST_DRF(OS46, _FLAGS, _DMA_OFFSET_FIXED, _TRUE, flags))

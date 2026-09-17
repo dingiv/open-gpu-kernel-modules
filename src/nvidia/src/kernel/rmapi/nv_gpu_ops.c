@@ -3412,6 +3412,13 @@ cleanup:
     portMemFree(nvlinkStatus1);
     portMemFree(nvlinkStatus2);
 
+    // DBG-INSTRUMENTATION (P3 observe-only): what the UMD actually receives.
+    NV_PRINTF(LEVEL_ERROR,
+              "DBG P2PCaps: bar1Dma[0]=0x%llx sz=0x%llx bar1Dma[1]=0x%llx sz=0x%llx link=%u\n",
+              p2pCapsParams->bar1DmaAddress[0], p2pCapsParams->bar1DmaSize[0],
+              p2pCapsParams->bar1DmaAddress[1], p2pCapsParams->bar1DmaSize[1],
+              p2pCapsParams->p2pLink);
+
     return status;
 }
 
@@ -3771,12 +3778,21 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
             rmDeviceGpuLocksAcquire(pRemoteGpu, GPUS_LOCK_FLAGS_NONE, RM_LOCK_MODULES_P2P));
     }
 
-    status = kbusMapFbAperture_HAL(pRemoteGpu, pRemoteKernelBus,
-                                   pAllocMemDesc,
-                                   mrangeMake(0, mapSize),
-                                   &memArea,
-                                   BUS_MAP_FB_FLAGS_MAP_UNICAST,
-                                   NULL);
+    // align2: legacy 64KB-phase window (NO PAGE_SIZE_2M — the recipe requires
+    // a misaligned range0, see the law v2 comment at nv_dynbar1_delta in
+    // nv.c) mapped at FB offset nv_dynbar1_delta.
+    {
+        extern unsigned long long nv_dynbar1_delta;
+        NvU64 delta = nv_dynbar1_delta;
+        if (delta >= mapSize)
+            delta = 0;
+        status = kbusMapFbAperture_HAL(pRemoteGpu, pRemoteKernelBus,
+                                       pAllocMemDesc,
+                                       mrangeMake(delta, mapSize - delta),
+                                       &memArea,
+                                       BUS_MAP_FB_FLAGS_MAP_UNICAST,
+                                       NULL);
+    }
 
     if (!bRemoteLockTaken)
         rmDeviceGpuLocksRelease(pRemoteGpu, GPUS_LOCK_FLAGS_NONE, NULL);
@@ -3836,6 +3852,36 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
         goto fail;
     }
     portMemSet(pMap, 0, sizeof(*pMap));
+    //
+    // METHOD3 window FB-binding (align3, 2026-09-17): law v3 (64K PTEs,
+    // 18/18 points incl. full delta sweep): the GSP delivers the window's
+    // first (range0 mod 2MB) bytes of encoded writes to nowhere and lands
+    // the rest displaced by (delta - residue). With the 2MB VA placement
+    // floor (virt_mem_allocator_gm107.c bIsBar1, align3) range0 is always
+    // 2MB-aligned => residue 0 => dead zone 0 and, with comp = 0 and
+    // delta = 0, landing == intent EXACTLY for the whole window.
+    // (The sub-2MB partial first page was the entire corruption story:
+    // 610/615 GSP quantizes the aperture at 2MB but the BAR1 VA allocator
+    // placed windows at 64KB phases. duanyll's 4090s passed on allocator
+    // luck: his placements happened to be 2MB-aligned.)
+    //
+    if ((memArea.pRanges[0].start & 0x1FFFFFULL) != 0)
+    {
+        NV_PRINTF(LEVEL_ERROR,
+                  "METHOD3: align3 got MISALIGNED range0 0x%llx — dead zone "
+                  "%llu bytes at window head; placement floor regressed?\n",
+                  memArea.pRanges[0].start, memArea.pRanges[0].start & 0x1FFFFFULL);
+    }
+    //
+    // P3 calibration sweep knob (see kernel-open/nvidia/nv.c): extra
+    // runtime-tunable delta on top of the formula compensation, so the GSP
+    // binding function can be mapped in a single boot.
+    //
+    {
+        extern unsigned long long nv_dynbar1_calib;
+        dmaBase += (NvU64)nv_dynbar1_calib;
+    }
+    //
     pMap->hDupMemory         = hDupMemory;
     pMap->mappingGpuInstance = gpuGetInstance(pMappingGpu);
     pMap->pRemoteGpu         = pRemoteGpu;
@@ -4328,6 +4374,16 @@ nvGpuOpsBuildExternalAllocPtes
 {
     NV_STATUS               status              = NV_OK;
     const GMMU_FMT         *pFmt                = NULL;
+
+    // DBG-INSTRUMENTATION (P3 observe-only): entry probe -- distinguishes
+    // "not called" from "early return". Remove after P3.
+    NV_PRINTF(LEVEL_ERROR,
+              "DBG Ptes entry: map=GPU%u owner=GPU%u off=0x%llx size=0x%llx peer=%u bar1=%u dyn=%u base=0x%llx mapInfo=%s\n",
+              gpuGetInstance(pMappingGpu),
+              (pMemDesc->pGpu != NULL) ? gpuGetInstance(pMemDesc->pGpu) : 0xFF,
+              offset, size, isPeerSupported, isBar1P2PSupported,
+              bDynBar1Mapped, dynBar1DmaBase,
+              (pGpuExternalMappingInfo != NULL) ? "Y" : "N");
     const GMMU_FMT_PTE     *pPteFmt             = NULL;
     const MMU_FMT_LEVEL    *pLevelFmt           = NULL;
     GMMU_APERTURE           aperture;
@@ -4820,6 +4876,15 @@ nvGpuOpsBuildExternalAllocPhysAddrs
 {
     NV_STATUS               status              = NV_OK;
     GMMU_APERTURE           aperture;
+
+    // DBG-INSTRUMENTATION (P3 observe-only): entry probe. Remove after P3.
+    NV_PRINTF(LEVEL_ERROR,
+              "DBG PhysAddrs entry: map=GPU%u owner=GPU%u off=0x%llx size=0x%llx peer=%u bar1=%u dyn=%u base=0x%llx physInfo=%s\n",
+              gpuGetInstance(pMappingGpu),
+              (pMemDesc->pGpu != NULL) ? gpuGetInstance(pMemDesc->pGpu) : 0xFF,
+              offset, size, isPeerSupported, isBar1P2PSupported,
+              bDynBar1Mapped, dynBar1DmaBase,
+              (pGpuExternalPhysAddrInfo != NULL) ? "Y" : "N");
 
     NvU64         fabricBaseAddress   = NVLINK_INVALID_FABRIC_ADDR;
     NvU64         pageSize;
@@ -8940,12 +9005,21 @@ NV_STATUS nvGpuOpsDupMemory(struct gpuDevice *device,
                             NvHandle *hDupMemory,
                             gpuMemoryInfo *pGpuMemoryInfo)
 {
-    return dupMemory(device,
+    NV_STATUS dbgStatus;
+    // DBG-INSTRUMENTATION (P3 observe-only). Remove after P3.
+    NV_PRINTF(LEVEL_ERROR, "DBG DupMemory entry: hMem=0x%x\n", hPhysMemory);
+    dbgStatus = dupMemory(device,
                      hClient,
                      hPhysMemory,
                      NV04_DUP_HANDLE_FLAGS_REJECT_KERNEL_DUP_PRIVILEGE,
                      hDupMemory,
                      pGpuMemoryInfo);
+    if (dbgStatus == NV_OK && pGpuMemoryInfo != NULL)
+        NV_PRINTF(LEVEL_ERROR,
+                  "DBG DupMemory exit: hDup=0x%x sysmem=%u pageSize=0x%llx contig=%u\n",
+                  *hDupMemory, (NvU32)pGpuMemoryInfo->sysmem,
+                  pGpuMemoryInfo->pageSize, (NvU32)pGpuMemoryInfo->contig);
+    return dbgStatus;
 }
 
 NV_STATUS nvGpuOpsDupAllocation(struct gpuAddressSpace *srcVaSpace,

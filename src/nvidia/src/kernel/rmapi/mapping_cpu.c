@@ -537,6 +537,20 @@ memMap_IMPL
                      memdescGetPteAdjust(pMemDesc) + pMapParams->offset;
         }
 
+        // DBG-INSTRUMENTATION (P3 observe-only). Remove after P3.
+        if (!kbusIsBar1PhysicalModeEnabled(pKernelBus))
+            NV_PRINTF(LEVEL_ERROR,
+                      "DBG mapcpu: gpu=%u gpa=0x%llx va=0x%llx len=0x%llx\n",
+                      gpuGetInstance(pGpu), gpumgrGetGpuPhysFbAddr(pGpu),
+                      gpuVirtAddr, pMapParams->length);
+        //
+        // CANDIDATE FIX (INACTIVE — fix1 hung static cards with a bad gate;
+        // must gate on non-static owner before ever enabling):
+        //
+        // if (!kbusIsStaticBar1Enabled(pGpu, pKernelBus) &&
+        //     gpuVirtAddr >= 0x200000ULL)
+        //     gpuVirtAddr += (gpuVirtAddr - 0x200000ULL);
+        //
         if (pMapParams->bKernel)
         {
             rmStatus = osMapPciMemoryKernel64(pGpu,
