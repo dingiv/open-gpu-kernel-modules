@@ -25,6 +25,7 @@
 #include "gpu_mgr/gpu_mgr.h"
 #include "kernel/gpu/mig_mgr/kernel_mig_manager.h"
 #include "kernel/gpu/nvlink/kernel_nvlink.h"
+#include "p3_probe.h"
 #include "kernel/gpu/bif/kernel_bif.h"
 #include "gpu/subdevice/subdevice.h"
 #include "gpu/gpu.h"
@@ -364,6 +365,9 @@ _kp2pCapsCheckStatusOverridesForPcie
         pKernelBif = GPU_GET_KERNEL_BIF(pGpu);
         if (pKernelBif->p2pOverride != BIF_P2P_NOT_OVERRIDEN)
         {
+            P3_PROBE(P3_TAG_PEERQ,
+                     "caps override hit: GPU%u p2pOverride=0x%x",
+                     gpuGetInstance(pGpu), pKernelBif->p2pOverride);
             switch(DRF_VAL(_REG_STR, _CL_FORCE_P2P, _READ, pKernelBif->p2pOverride))
             {
                 case NV_REG_STR_CL_FORCE_P2P_READ_DISABLE:
@@ -450,6 +454,9 @@ _kp2pCapsGetStatusOverPcie
     if (_kp2pCapsCheckStatusOverridesForPcie(gpuMask, pP2PWriteCapStatus,
                                             pP2PReadCapStatus, &unused))
     {
+        P3_PROBE(P3_TAG_PEERQ,
+                 "PCIe walk SKIPPED by override: W=0x%x R=0x%x",
+                 *pP2PWriteCapStatus, *pP2PReadCapStatus);
         return NV_OK;
     }
 
@@ -680,6 +687,11 @@ done:
     {
        NV_ASSERT_OK(gpumgrStorePcieP2PCapsCache(gpuMask, *pP2PWriteCapStatus, *pP2PReadCapStatus));
     }
+
+    P3_PROBE(P3_TAG_PEERQ,
+             "PCIe walk done: status=0x%x W=0x%x R=0x%x switch=%d",
+             status, *pP2PWriteCapStatus, *pP2PReadCapStatus,
+             (NvU32)bCommonPciSwitchFound);
     return status;
 }
 
@@ -718,6 +730,10 @@ _p2pCapsGetHostSystemStatusOverPcieBar1
         NV_PRINTF(LEVEL_INFO, "Unrecognized CPU. Read Cap is disabled\n");
     }
 
+    P3_PROBE(P3_TAG_PEERQ,
+             "hostsys BAR1: switch=%d cpuType=0x%x W=0x%x R=0x%x",
+             (NvU32)bCommonPciSwitchFound, pSys->cpuInfo.type,
+             *pP2PWriteCapStatus, *pP2PReadCapStatus);
     return NV_OK;
 }
 
@@ -777,6 +793,9 @@ _kp2pCapsGetStatusOverPcieBar1
         ((pKernelBif->pcieP2PType != NV_REG_STR_RM_PCIEP2P_TYPE_BAR1) &&
          (pKernelBif->pcieP2PType != NV_REG_STR_RM_PCIEP2P_TYPE_AUTO)))
     {
+        P3_PROBE(P3_TAG_PEERQ,
+                 "BAR1 gate1 fail: forceP2PType=0x%x pcieP2PType=0x%x",
+                 pKernelBif->forceP2PType, pKernelBif->pcieP2PType);
         return NV_ERR_NOT_SUPPORTED;
     }
 
@@ -791,6 +810,9 @@ _kp2pCapsGetStatusOverPcieBar1
         if (!kbusIsPcieBar1P2PMappingSupported_HAL(pFirstGpu, GPU_GET_KERNEL_BUS(pFirstGpu),
                                                    pGpuPeer, GPU_GET_KERNEL_BUS(pGpuPeer)))
         {
+            P3_PROBE(P3_TAG_PEERQ,
+                     "BAR1 gate2 fail: GPU%u->GPU%u HAL unsupported",
+                     gpuGetInstance(pFirstGpu), gpuGetInstance(pGpuPeer));
             return NV_ERR_NOT_SUPPORTED;
         }
     }
@@ -800,6 +822,9 @@ _kp2pCapsGetStatusOverPcieBar1
                                              pP2PReadCapStatus,
                                              pP2PAtomicsCapStatus))
     {
+        P3_PROBE(P3_TAG_PEERQ,
+                 "BAR1 override accepted: W=0x%x R=0x%x",
+                 *pP2PWriteCapStatus, *pP2PReadCapStatus);
         return NV_OK;
     }
 
@@ -812,6 +837,8 @@ _kp2pCapsGetStatusOverPcieBar1
             *pP2PReadCapStatus = NV0000_P2P_CAPS_STATUS_NOT_SUPPORTED;
             *pP2PWriteCapStatus = NV0000_P2P_CAPS_STATUS_NOT_SUPPORTED;
             *pP2PAtomicsCapStatus = NV0000_P2P_CAPS_STATUS_NOT_SUPPORTED;
+            P3_PROBE(P3_TAG_PEERQ, "BAR1 selfhosted GPU%u",
+                     gpuGetInstance(pGpuPeer));
             return NV_ERR_NOT_SUPPORTED;
         }
     }
@@ -829,8 +856,14 @@ _kp2pCapsGetStatusOverPcieBar1
         (*pP2PWriteCapStatus != NV0000_P2P_CAPS_STATUS_OK))
     {
         // return not supported if it does not support both operations
+        P3_PROBE(P3_TAG_PEERQ,
+                 "BAR1 caps fail: W=0x%x R=0x%x",
+                 *pP2PWriteCapStatus, *pP2PReadCapStatus);
         return NV_ERR_NOT_SUPPORTED;
     }
+
+    P3_PROBE(P3_TAG_PEERQ, "BAR1 caps OK: W=0x%x R=0x%x",
+             *pP2PWriteCapStatus, *pP2PReadCapStatus);
 
     // If p2p traffic is supported, check the PCIe topology for atomics capability
     _p2pCapsGetPcieToplogySupportForBar1Atomics(gpuMask, &atomicsCapStatus);
@@ -977,8 +1010,16 @@ p2pGetCapsStatus
             *pP2PReadCapStatus = bar1P2PReadCapStatus;
             *pP2PAtomicsCapStatus = bar1P2PAtomicsCapStatus;
             *pConnectivity = P2P_CONNECTIVITY_PCIE_BAR1;
+            P3_PROBE(P3_TAG_PEERQ,
+                     "connectivity=PCIE_BAR1 (switch=%d)",
+                     (NvU32)bCommonSwitchFound);
             return NV_OK;
         }
+
+        P3_PROBE(P3_TAG_PEERQ,
+                 "BAR1 sub-check failed: W=0x%x R=0x%x switch=%d",
+                 bar1P2PWriteCapStatus, bar1P2PReadCapStatus,
+                 (NvU32)bCommonSwitchFound);
 
         // BAR1 is the only architecture-independent PCIe transport here.
         if (!areAllGpusP2PCompatible(gpuMask))
@@ -993,10 +1034,15 @@ p2pGetCapsStatus
             (*pP2PReadCapStatus == NV0000_P2P_CAPS_STATUS_OK))
         {
             *pConnectivity = P2P_CONNECTIVITY_PCIE_PROPRIETARY;
+            P3_PROBE(P3_TAG_PEERQ,
+                     "connectivity=PCIE_PROPRIETARY (mailbox!) W=0x%x R=0x%x",
+                     *pP2PWriteCapStatus, *pP2PReadCapStatus);
             return NV_OK;
         }
     }
 
+    P3_PROBE(P3_TAG_PEERQ, "connectivity=none/unsupported (%d)",
+             (NvU32)*pConnectivity);
     return NV_OK;
 }
 

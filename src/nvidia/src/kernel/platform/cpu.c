@@ -33,6 +33,7 @@
 #include "core/system.h"
 
 #include "ctrl/ctrl0000/ctrl0000system.h"
+#include "p3_probe.h"
 
 
 #if NVCPU_IS_AARCH64
@@ -1447,6 +1448,13 @@ static void cpuidInfoAMD(OBJSYS *pSys, PCPUIDINFO pCpuidInfo)
                 pSys->cpuInfo.type = NV0000_CTRL_SYSTEM_CPU_TYPE_RYZEN;
                 break;
         }
+
+        // P3(PEERQ): AMD Zen display families 0x17~0x1B all mask to 0x010 here;
+        // log the actual family vs the chosen type (suspected Zen->K10 misdetect
+        // feeding the BAR1 caps CPU whitelist).
+        P3_PROBE(P3_TAG_PEERQ,
+                 "AMD cpuid: fam=0x%x -> cpuInfo.type=0x%x",
+                 pCpuidInfo->Family, pSys->cpuInfo.type);
     }
 
     if (pCpuidInfo->ExtendedFeatures & CPU_EXT_3DNOW)

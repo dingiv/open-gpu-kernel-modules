@@ -25,6 +25,7 @@
 #include "gpu/gpu.h"
 #include "gpu/device/device.h"
 #include "gpu/subdevice/subdevice.h"
+#include "p3_probe.h"
 #include "gpu/bus/kern_bus.h"
 #include "gpu/bus/p2p_api.h"
 #include "gpu/bus/third_party_p2p.h"
@@ -407,6 +408,13 @@ p2papiConstruct_IMPL
 
     p2pCaps = pP2pCapsParams->p2pCaps;
 
+    P3_PROBE(P3_TAG_PEERQ,
+             "P2PObj caps V2: raw=0x%x W=%d R=%d BAR1=%d PROP=%d NL=%d",
+             p2pCaps, (NvU32)bP2PWriteCapable, (NvU32)bP2PReadCapable,
+             (NvU32)REF_VAL(NV0000_CTRL_SYSTEM_GET_P2P_CAPS_PCI_BAR1_SUPPORTED, p2pCaps),
+             (NvU32)REF_VAL(NV0000_CTRL_SYSTEM_GET_P2P_CAPS_PROP_SUPPORTED, p2pCaps),
+             (NvU32)REF_VAL(NV0000_CTRL_SYSTEM_GET_P2P_CAPS_NVLINK_SUPPORTED, p2pCaps));
+
     portMemFreeStackOrHeap(pP2pCapsParams);
 
     if (REF_VAL(NV0000_CTRL_SYSTEM_GET_P2P_CAPS_C2C_SUPPORTED, p2pCaps))
@@ -426,6 +434,8 @@ p2papiConstruct_IMPL
         return NV_ERR_NOT_SUPPORTED;
     }
 
+    P3_PROBE(P3_TAG_PEERQ, "P2PObj connType=%d", (NvU32)p2pConnectionType);
+
     //
     // Allocate P2P PCIE Mailbox areas if all of the following conditions occur:
     // - P2P reads or/and writes are supported
@@ -434,6 +444,10 @@ p2papiConstruct_IMPL
     if ((bP2PWriteCapable || bP2PReadCapable) &&
         p2pConnectionType == P2P_CONNECTIVITY_PCIE_PROPRIETARY)
     {
+        P3_PROBE(P3_TAG_PEERQ,
+                 "P2PObj PROP mailbox: lAddr=0x%llx size=0x%x",
+                 pNv503bAllocParams->mailboxBar1Addr,
+                 pNv503bAllocParams->mailboxTotalSize);
         status = kbusSetP2PMailboxBar1Area_HAL(pLocalGpu, pLocalKernelBus,
                                                pNv503bAllocParams->mailboxBar1Addr,
                                                pNv503bAllocParams->mailboxTotalSize);
@@ -591,6 +605,9 @@ p2papiConstruct_IMPL
         //
 
         // setup the p2p resources
+        P3_PROBE(P3_TAG_PEERQ,
+                 "P2PObj kbusCreateP2PMapping: connType=%d",
+                 (NvU32)p2pConnectionType);
         NV_CHECK_OK_OR_RETURN(LEVEL_ERROR,
                               kbusCreateP2PMapping_HAL(pLocalGpu, pLocalKernelBus, pRemoteGpu,
                                                        pRemoteKernelBus, &peer1, &peer2,

@@ -3116,6 +3116,14 @@ static NV_STATUS getSystemP2PCaps(struct gpuDevice *device1,
     p2pCaps->atomicSupported = !!REF_VAL(NV0000_CTRL_SYSTEM_GET_P2P_CAPS_ATOMICS_SUPPORTED, p2pCapsParams->p2pCaps);
     p2pCaps->bar1Supported = !!REF_VAL(NV0000_CTRL_SYSTEM_GET_P2P_CAPS_PCI_BAR1_SUPPORTED, p2pCapsParams->p2pCaps);
 
+    P3_PROBE(P3_TAG_PEERQ,
+             "V2 caps: raw=0x%llx bar1=%d nl=%d W=%d R=%d",
+             (NvU64)p2pCapsParams->p2pCaps,
+             (NvU32)p2pCaps->bar1Supported,
+             (NvU32)p2pCaps->nvlinkSupported,
+             (NvU32)REF_VAL(NV0000_CTRL_SYSTEM_GET_P2P_CAPS_WRITES_SUPPORTED, p2pCapsParams->p2pCaps),
+             (NvU32)REF_VAL(NV0000_CTRL_SYSTEM_GET_P2P_CAPS_READS_SUPPORTED, p2pCapsParams->p2pCaps));
+
     // TODO: Bug 1768805: Check both reads and writes since RM seems to be
     //       currently incorrectly reporting just the P2P write cap on some
     //       systems that cannot support P2P at all. See the bug for more
@@ -5282,6 +5290,11 @@ NV_STATUS nvGpuOpsGetExternalAllocPtesOrPhysAddrs(struct gpuAddressSpace *vaSpac
             if (status != NV_OK)
                 goto freeGpaMemdesc;
 
+            P3_PROBE(P3_TAG_PEERQ,
+                     "ExtAlloc P2pInfo: peer=%d bar1=%d indirect=%d peerId=%d",
+                     (NvU32)isPeerSupported, (NvU32)isBar1P2PSupported,
+                     (NvU32)isIndirectPeerSupported, peerId);
+
             if (isBar1P2PSupported &&
                 !kbusIsStaticBar1Enabled(pAdjustedMemDesc->pGpu,
                                           GPU_GET_KERNEL_BUS(pAdjustedMemDesc->pGpu)))
@@ -5293,7 +5306,12 @@ NV_STATUS nvGpuOpsGetExternalAllocPtesOrPhysAddrs(struct gpuAddressSpace *vaSpac
                                                       hMemory,
                                                       &dynBar1DmaBase);
                 if (status != NV_OK)
+                {
+                    P3_PROBE(P3_TAG_PEERQ, "DynBar1GetOrCreate fail: 0x%x", status);
                     goto freeGpaMemdesc;
+                }
+                P3_PROBE(P3_TAG_PEERQ, "DynBar1GetOrCreate ok: base=0x%llx",
+                         dynBar1DmaBase);
 
                 // IOVA zero is valid; mode must not depend on the window address.
                 dynBar1Mapped = NV_TRUE;
@@ -11912,6 +11930,9 @@ static NV_STATUS _nvGpuOpsP2pObjectCreate(struct gpuDevice *device1,
     hTemp = NV01_NULL_OBJECT;
     status = pRmApi->Alloc(pRmApi, session->handle, session->handle, &hTemp,
                            NV50_P2P, &p2pAllocParams, sizeof(p2pAllocParams));
+    P3_PROBE(P3_TAG_PEERQ,
+             "P2pObjectCreate gpuId0=0x%x gpuId1=0x%x access=%d status=0x%x",
+             device1->gpuId, device2->gpuId, (NvU32)p2pCaps.accessSupported, status);
     if (status == NV_OK)
         *hP2pObject = hTemp;
 

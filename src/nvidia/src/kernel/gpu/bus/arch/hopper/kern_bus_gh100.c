@@ -56,6 +56,7 @@
 #include "ctrl/ctrl2080/ctrl2080fla.h" // NV2080_CTRL_CMD_FLA_SETUP_INSTANCE_MEM_BLOCK
 
 #include "nvrm_registry.h"
+#include "p3_probe.h"
 
  // Defines for P2P
 #define HOPPER_MAX_WRITE_MAILBOX_ADDR(pGpu)                                         \
@@ -1455,6 +1456,10 @@ kbusIsPcieBar1P2PMappingSupported_GH100
     if ((pKernelBif->pcieP2PType != NV_REG_STR_RM_PCIEP2P_TYPE_BAR1) &&
         !pKernelBus0->getProperty(pKernelBus0, PDB_PROP_KBUS_SUPPORT_BAR1_P2P_BY_DEFAULT))
     {
+        P3_PROBE(P3_TAG_PEERQ,
+                 "P2PQ gate1 fail: pcieP2PType=0x%x pdbBar1Default=%d",
+                 pKernelBif->pcieP2PType,
+                 (NvU32)pKernelBus0->getProperty(pKernelBus0, PDB_PROP_KBUS_SUPPORT_BAR1_P2P_BY_DEFAULT));
         return NV_FALSE;
     }
 
@@ -1475,6 +1480,10 @@ kbusIsPcieBar1P2PMappingSupported_GH100
     if ((pKernelBus0->p2pPcie.peerNumberMask[gpuInst1] != 0) ||
         (pKernelBus1->p2pPcie.peerNumberMask[gpuInst0] != 0))
     {
+        P3_PROBE(P3_TAG_PEERQ,
+                 "P2PQ mailbox mask set: GPU%u->%u mask=0x%x, GPU%u->%u mask=0x%x",
+                 gpuInst0, gpuInst1, pKernelBus0->p2pPcie.peerNumberMask[gpuInst1],
+                 gpuInst1, gpuInst0, pKernelBus1->p2pPcie.peerNumberMask[gpuInst0]);
         return NV_FALSE;
     }
 
@@ -1489,8 +1498,15 @@ kbusIsPcieBar1P2PMappingSupported_GH100
                       "METHOD3: mixed static/dynamic BAR1 (GPU%u static=%u, GPU%u static=%u); "
                       "BAR1 P2P not advertised\n",
                       gpuInst0, (NvU32)bStatic0, gpuInst1, (NvU32)bStatic1);
+            P3_PROBE(P3_TAG_PEERQ,
+                     "P2PQ mixed static/dynamic: GPU%u static=%d, GPU%u static=%d",
+                     gpuInst0, (NvU32)bStatic0, gpuInst1, (NvU32)bStatic1);
             return NV_FALSE;
         }
+
+        P3_PROBE(P3_TAG_PEERQ,
+                 "P2PQ supported: GPU%u->GPU%u static=%d/%d",
+                 gpuInst0, gpuInst1, (NvU32)bStatic0, (NvU32)bStatic1);
     }
 
     return NV_TRUE;
