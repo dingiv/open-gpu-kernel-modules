@@ -1050,6 +1050,13 @@ kbusMapFbApertureSingle_IMPL
         flags | BUS_MAP_FB_FLAGS_UNMANAGED_MEM_AREA, pDevice));
     *pLength = memRange.size;
     *pAperOffset = memRange.start;
+    // DBG-INSTRUMENTATION (P3 observe-only): every legacy single-window grant.
+    // Remove after P3.
+    NV_PRINTF(LEVEL_ERROR,
+              "DBG MapFbApSingle: gpu=%u %s aper=0x%llx len=0x%llx\n",
+              gpuGetInstance(pGpu),
+              (pMemDesc->pGpu == pGpu) ? "local" : "PEER",
+              *pAperOffset, *pLength);
     return NV_OK;
 }
     

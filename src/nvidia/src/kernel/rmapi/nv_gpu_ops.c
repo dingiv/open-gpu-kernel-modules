@@ -3412,6 +3412,13 @@ cleanup:
     portMemFree(nvlinkStatus1);
     portMemFree(nvlinkStatus2);
 
+    // DBG-INSTRUMENTATION (P3 observe-only): what the UMD actually receives.
+    NV_PRINTF(LEVEL_ERROR,
+              "DBG P2PCaps: bar1Dma[0]=0x%llx sz=0x%llx bar1Dma[1]=0x%llx sz=0x%llx link=%u\n",
+              p2pCapsParams->bar1DmaAddress[0], p2pCapsParams->bar1DmaSize[0],
+              p2pCapsParams->bar1DmaAddress[1], p2pCapsParams->bar1DmaSize[1],
+              p2pCapsParams->p2pLink);
+
     return status;
 }
 
@@ -4328,6 +4335,16 @@ nvGpuOpsBuildExternalAllocPtes
 {
     NV_STATUS               status              = NV_OK;
     const GMMU_FMT         *pFmt                = NULL;
+
+    // DBG-INSTRUMENTATION (P3 observe-only): entry probe -- distinguishes
+    // "not called" from "early return". Remove after P3.
+    NV_PRINTF(LEVEL_ERROR,
+              "DBG Ptes entry: map=GPU%u owner=GPU%u off=0x%llx size=0x%llx peer=%u bar1=%u dyn=%u base=0x%llx mapInfo=%s\n",
+              gpuGetInstance(pMappingGpu),
+              (pMemDesc->pGpu != NULL) ? gpuGetInstance(pMemDesc->pGpu) : 0xFF,
+              offset, size, isPeerSupported, isBar1P2PSupported,
+              bDynBar1Mapped, dynBar1DmaBase,
+              (pGpuExternalMappingInfo != NULL) ? "Y" : "N");
     const GMMU_FMT_PTE     *pPteFmt             = NULL;
     const MMU_FMT_LEVEL    *pLevelFmt           = NULL;
     GMMU_APERTURE           aperture;
@@ -4820,6 +4837,15 @@ nvGpuOpsBuildExternalAllocPhysAddrs
 {
     NV_STATUS               status              = NV_OK;
     GMMU_APERTURE           aperture;
+
+    // DBG-INSTRUMENTATION (P3 observe-only): entry probe. Remove after P3.
+    NV_PRINTF(LEVEL_ERROR,
+              "DBG PhysAddrs entry: map=GPU%u owner=GPU%u off=0x%llx size=0x%llx peer=%u bar1=%u dyn=%u base=0x%llx physInfo=%s\n",
+              gpuGetInstance(pMappingGpu),
+              (pMemDesc->pGpu != NULL) ? gpuGetInstance(pMemDesc->pGpu) : 0xFF,
+              offset, size, isPeerSupported, isBar1P2PSupported,
+              bDynBar1Mapped, dynBar1DmaBase,
+              (pGpuExternalPhysAddrInfo != NULL) ? "Y" : "N");
 
     NvU64         fabricBaseAddress   = NVLINK_INVALID_FABRIC_ADDR;
     NvU64         pageSize;
@@ -8940,12 +8966,21 @@ NV_STATUS nvGpuOpsDupMemory(struct gpuDevice *device,
                             NvHandle *hDupMemory,
                             gpuMemoryInfo *pGpuMemoryInfo)
 {
-    return dupMemory(device,
+    NV_STATUS dbgStatus;
+    // DBG-INSTRUMENTATION (P3 observe-only). Remove after P3.
+    NV_PRINTF(LEVEL_ERROR, "DBG DupMemory entry: hMem=0x%x\n", hPhysMemory);
+    dbgStatus = dupMemory(device,
                      hClient,
                      hPhysMemory,
                      NV04_DUP_HANDLE_FLAGS_REJECT_KERNEL_DUP_PRIVILEGE,
                      hDupMemory,
                      pGpuMemoryInfo);
+    if (dbgStatus == NV_OK && pGpuMemoryInfo != NULL)
+        NV_PRINTF(LEVEL_ERROR,
+                  "DBG DupMemory exit: hDup=0x%x sysmem=%u pageSize=0x%llx contig=%u\n",
+                  *hDupMemory, (NvU32)pGpuMemoryInfo->sysmem,
+                  pGpuMemoryInfo->pageSize, (NvU32)pGpuMemoryInfo->contig);
+    return dbgStatus;
 }
 
 NV_STATUS nvGpuOpsDupAllocation(struct gpuAddressSpace *srcVaSpace,
