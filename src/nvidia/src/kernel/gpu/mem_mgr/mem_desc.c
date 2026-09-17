@@ -27,6 +27,7 @@
  */
 
 #include "gpu/mem_mgr/mem_desc.h"
+#include "p3_probe.h"
 
 #include "gpu/bif/kernel_bif.h"
 
@@ -2863,17 +2864,14 @@ void memdescGetPhysAddrsForGpu(MEMORY_DESCRIPTOR *pMemDesc,
     NV_ASSERT(!memdescHasSubDeviceMemDescs(pMemDesc));
     offset += pMemDesc->PteAdjust;
 
-    // DBG-INSTRUMENTATION (P3 observe-only): every peer-FB address query
-    // through the memdesc layer -- the choke point all consumers share.
-    // Remove after P3.
     if ((pGpu != NULL) && (pMemDesc->pGpu != NULL) && (pGpu != pMemDesc->pGpu) &&
         (memdescGetAddressSpace(pMemDesc) == ADDR_FBMEM) && (count > 0))
     {
-        NV_PRINTF(LEVEL_ERROR,
-                  "DBG memdesc peer-pte: owner=GPU%u map=GPU%u AT=%u off=0x%llx count=%llu first=0x%llx\n",
-                  gpuGetInstance(pMemDesc->pGpu), gpuGetInstance(pGpu),
-                  (NvU32)addressTranslation, offset, (NvU64)count,
-                  pteArray[0] + offset);
+        P3_PROBE(P3_TAG_PEERQ,
+                 "memdesc peer-pte: owner=GPU%u map=GPU%u AT=%u off=0x%llx count=%llu first=0x%llx",
+                 gpuGetInstance(pMemDesc->pGpu), gpuGetInstance(pGpu),
+                 (NvU32)addressTranslation, offset, (NvU64)count,
+                 pteArray[0] + offset);
     }
 
     for (i = 0; i < count; ++i)
@@ -2928,17 +2926,14 @@ void memdescGetPtePhysAddrsForGpu(MEMORY_DESCRIPTOR *pMemDesc,
     NV_ASSERT(!memdescHasSubDeviceMemDescs(pMemDesc));
     offset += pMemDesc->PteAdjust;
 
-    // DBG-INSTRUMENTATION (P3 observe-only): every peer-FB address query
-    // through the memdesc layer -- the choke point all consumers share.
-    // Remove after P3.
     if ((pGpu != NULL) && (pMemDesc->pGpu != NULL) && (pGpu != pMemDesc->pGpu) &&
         (memdescGetAddressSpace(pMemDesc) == ADDR_FBMEM) && (count > 0))
     {
-        NV_PRINTF(LEVEL_ERROR,
-                  "DBG memdesc peer-pte: owner=GPU%u map=GPU%u AT=%u off=0x%llx count=%llu first=0x%llx\n",
-                  gpuGetInstance(pMemDesc->pGpu), gpuGetInstance(pGpu),
-                  (NvU32)addressTranslation, offset, (NvU64)count,
-                  pteArray[0] + offset);
+        P3_PROBE(P3_TAG_PEERQ,
+                 "memdesc peer-pte: owner=GPU%u map=GPU%u AT=%u off=0x%llx count=%llu first=0x%llx",
+                 gpuGetInstance(pMemDesc->pGpu), gpuGetInstance(pGpu),
+                 (NvU32)addressTranslation, offset, (NvU64)count,
+                 pteArray[0] + offset);
     }
 
     for (i = 0; i < count; ++i)

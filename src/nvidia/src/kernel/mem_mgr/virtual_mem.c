@@ -22,6 +22,7 @@
  */
 
 #include "mem_mgr/virtual_mem.h"
+#include "p3_probe.h"
 #include "mem_mgr/vaspace.h"
 #include "gpu/mem_mgr/virt_mem_allocator.h"
 #include "virtualization/hypervisor/hypervisor.h"
@@ -1083,9 +1084,8 @@ _virtmemAllocKernelMapping
                 SLI_LOOP_BREAK;
             }
 
-            // DBG-INSTRUMENTATION (P3 observe-only). Remove after P3.
-            NV_PRINTF(LEVEL_ERROR,
-                      "DBG virtmem cpu-map: gpu=%u gpa=0x%llx fbAp=0x%llx len=0x%llx\n",
+            P3_PROBE(P3_TAG_HOT,
+                      "virtmem cpu-map: gpu=%u gpa=0x%llx fbAp=0x%llx len=0x%llx",
                       gpuGetInstance(pGpu), gpumgrGetGpuPhysFbAddr(pGpu),
                       pDmaMappingInfo->FbAperture[gpuSubDevInst],
                       pDmaMappingInfo->FbApertureLen[gpuSubDevInst]);

@@ -22,6 +22,7 @@
  */
 
 #include "core/prelude.h"
+#include "p3_probe.h"
 
 
 #include <class/cl0002.h>
@@ -3412,12 +3413,11 @@ cleanup:
     portMemFree(nvlinkStatus1);
     portMemFree(nvlinkStatus2);
 
-    // DBG-INSTRUMENTATION (P3 observe-only): what the UMD actually receives.
-    NV_PRINTF(LEVEL_ERROR,
-              "DBG P2PCaps: bar1Dma[0]=0x%llx sz=0x%llx bar1Dma[1]=0x%llx sz=0x%llx link=%u\n",
-              p2pCapsParams->bar1DmaAddress[0], p2pCapsParams->bar1DmaSize[0],
-              p2pCapsParams->bar1DmaAddress[1], p2pCapsParams->bar1DmaSize[1],
-              p2pCapsParams->p2pLink);
+    P3_PROBE(P3_TAG_PEERQ,
+             "P2PCaps: bar1Dma[0]=0x%llx sz=0x%llx bar1Dma[1]=0x%llx sz=0x%llx link=%u",
+             p2pCapsParams->bar1DmaAddress[0], p2pCapsParams->bar1DmaSize[0],
+             p2pCapsParams->bar1DmaAddress[1], p2pCapsParams->bar1DmaSize[1],
+             p2pCapsParams->p2pLink);
 
     return status;
 }
@@ -3902,6 +3902,21 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
               gpuGetInstance(pMappingGpu), gpuGetInstance(pRemoteGpu), hDupMemory,
               mapSize, memArea.pRanges[0].start, dmaBase, rmSubDevice->dynBar1MappedBytes);
 
+    //
+    // P3 probe: the alignment-critical values in one line. range0 phase,
+    // delta and the final encode base are exactly the law-v3 inputs.
+    //
+    {
+        extern unsigned long long nv_dynbar1_delta;
+        extern unsigned long long nv_dynbar1_calib;
+        P3_PROBE(P3_TAG_MAP,
+                 "window map: range0=0x%llx residue=%llu delta=%llu calib=%llu "
+                 "dmaBase=0x%llx size=0x%llx",
+                 memArea.pRanges[0].start,
+                 memArea.pRanges[0].start & 0x1FFFFFULL,
+                 nv_dynbar1_delta, nv_dynbar1_calib, dmaBase, mapSize);
+    }
+
     *pWindowDmaBase = dmaBase;
     return NV_OK;
 
@@ -4304,6 +4319,10 @@ _nvGpuOpsEncodeBar1P2PAddrs
 {
     NvU64 i;
 
+    P3_PROBE(P3_TAG_PTE,
+             "encode: base=0x%llx dmaSize=0x%llx pageSize=0x%llx count=%llu",
+             dmaBaseAddress, dmaSize, pageSize, count);
+
     for (i = 0; i < count; i++)
     {
         NvU64 offset = pAddresses[i];
@@ -4321,6 +4340,9 @@ _nvGpuOpsEncodeBar1P2PAddrs
         }
 
         pAddresses[i] = encodedAddress;
+        P3_PROBE(P3_TAG_PAGE,
+                 "enc[%llu] off=0x%llx -> 0x%llx",
+                 i, offset, encodedAddress);
     }
 
     return NV_OK;
@@ -4375,15 +4397,13 @@ nvGpuOpsBuildExternalAllocPtes
     NV_STATUS               status              = NV_OK;
     const GMMU_FMT         *pFmt                = NULL;
 
-    // DBG-INSTRUMENTATION (P3 observe-only): entry probe -- distinguishes
-    // "not called" from "early return". Remove after P3.
-    NV_PRINTF(LEVEL_ERROR,
-              "DBG Ptes entry: map=GPU%u owner=GPU%u off=0x%llx size=0x%llx peer=%u bar1=%u dyn=%u base=0x%llx mapInfo=%s\n",
-              gpuGetInstance(pMappingGpu),
-              (pMemDesc->pGpu != NULL) ? gpuGetInstance(pMemDesc->pGpu) : 0xFF,
-              offset, size, isPeerSupported, isBar1P2PSupported,
-              bDynBar1Mapped, dynBar1DmaBase,
-              (pGpuExternalMappingInfo != NULL) ? "Y" : "N");
+    P3_PROBE(P3_TAG_PTE,
+             "Ptes entry: map=GPU%u owner=GPU%u off=0x%llx size=0x%llx peer=%u bar1=%u dyn=%u base=0x%llx mapInfo=%s",
+             gpuGetInstance(pMappingGpu),
+             (pMemDesc->pGpu != NULL) ? gpuGetInstance(pMemDesc->pGpu) : 0xFF,
+             offset, size, isPeerSupported, isBar1P2PSupported,
+             bDynBar1Mapped, dynBar1DmaBase,
+             (pGpuExternalMappingInfo != NULL) ? "Y" : "N");
     const GMMU_FMT_PTE     *pPteFmt             = NULL;
     const MMU_FMT_LEVEL    *pLevelFmt           = NULL;
     GMMU_APERTURE           aperture;
@@ -4877,14 +4897,13 @@ nvGpuOpsBuildExternalAllocPhysAddrs
     NV_STATUS               status              = NV_OK;
     GMMU_APERTURE           aperture;
 
-    // DBG-INSTRUMENTATION (P3 observe-only): entry probe. Remove after P3.
-    NV_PRINTF(LEVEL_ERROR,
-              "DBG PhysAddrs entry: map=GPU%u owner=GPU%u off=0x%llx size=0x%llx peer=%u bar1=%u dyn=%u base=0x%llx physInfo=%s\n",
-              gpuGetInstance(pMappingGpu),
-              (pMemDesc->pGpu != NULL) ? gpuGetInstance(pMemDesc->pGpu) : 0xFF,
-              offset, size, isPeerSupported, isBar1P2PSupported,
-              bDynBar1Mapped, dynBar1DmaBase,
-              (pGpuExternalPhysAddrInfo != NULL) ? "Y" : "N");
+    P3_PROBE(P3_TAG_PTE,
+             "PhysAddrs entry: map=GPU%u owner=GPU%u off=0x%llx size=0x%llx peer=%u bar1=%u dyn=%u base=0x%llx physInfo=%s",
+             gpuGetInstance(pMappingGpu),
+             (pMemDesc->pGpu != NULL) ? gpuGetInstance(pMemDesc->pGpu) : 0xFF,
+             offset, size, isPeerSupported, isBar1P2PSupported,
+             bDynBar1Mapped, dynBar1DmaBase,
+             (pGpuExternalPhysAddrInfo != NULL) ? "Y" : "N");
 
     NvU64         fabricBaseAddress   = NVLINK_INVALID_FABRIC_ADDR;
     NvU64         pageSize;
@@ -9006,8 +9025,7 @@ NV_STATUS nvGpuOpsDupMemory(struct gpuDevice *device,
                             gpuMemoryInfo *pGpuMemoryInfo)
 {
     NV_STATUS dbgStatus;
-    // DBG-INSTRUMENTATION (P3 observe-only). Remove after P3.
-    NV_PRINTF(LEVEL_ERROR, "DBG DupMemory entry: hMem=0x%x\n", hPhysMemory);
+    P3_PROBE(P3_TAG_PEERQ, "DupMemory entry: hMem=0x%x", hPhysMemory);
     dbgStatus = dupMemory(device,
                      hClient,
                      hPhysMemory,
@@ -9015,10 +9033,10 @@ NV_STATUS nvGpuOpsDupMemory(struct gpuDevice *device,
                      hDupMemory,
                      pGpuMemoryInfo);
     if (dbgStatus == NV_OK && pGpuMemoryInfo != NULL)
-        NV_PRINTF(LEVEL_ERROR,
-                  "DBG DupMemory exit: hDup=0x%x sysmem=%u pageSize=0x%llx contig=%u\n",
-                  *hDupMemory, (NvU32)pGpuMemoryInfo->sysmem,
-                  pGpuMemoryInfo->pageSize, (NvU32)pGpuMemoryInfo->contig);
+        P3_PROBE(P3_TAG_PEERQ,
+                 "DupMemory exit: hDup=0x%x sysmem=%u pageSize=0x%llx contig=%u",
+                 *hDupMemory, (NvU32)pGpuMemoryInfo->sysmem,
+                 pGpuMemoryInfo->pageSize, (NvU32)pGpuMemoryInfo->contig);
     return dbgStatus;
 }
 

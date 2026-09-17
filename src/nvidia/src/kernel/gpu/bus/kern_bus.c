@@ -29,6 +29,7 @@
 #include "mem_mgr/gpu_vaspace.h"
 #include "gpu/mmu/kern_gmmu.h"
 #include "gpu/bus/kern_bus.h"
+#include "p3_probe.h"
 #include "kernel/gpu/mem_mgr/mem_mgr.h"
 #include "kernel/gpu/mem_sys/kern_mem_sys.h"
 #include "platform/chipset/chipset.h"
@@ -1050,13 +1051,11 @@ kbusMapFbApertureSingle_IMPL
         flags | BUS_MAP_FB_FLAGS_UNMANAGED_MEM_AREA, pDevice));
     *pLength = memRange.size;
     *pAperOffset = memRange.start;
-    // DBG-INSTRUMENTATION (P3 observe-only): every legacy single-window grant.
-    // Remove after P3.
-    NV_PRINTF(LEVEL_ERROR,
-              "DBG MapFbApSingle: gpu=%u %s aper=0x%llx len=0x%llx\n",
-              gpuGetInstance(pGpu),
-              (pMemDesc->pGpu == pGpu) ? "local" : "PEER",
-              *pAperOffset, *pLength);
+    P3_PROBE(P3_TAG_MAP,
+             "MapFbApSingle: gpu=%u %s aper=0x%llx len=0x%llx",
+             gpuGetInstance(pGpu),
+             (pMemDesc->pGpu == pGpu) ? "local" : "PEER",
+             *pAperOffset, *pLength);
     return NV_OK;
 }
     
