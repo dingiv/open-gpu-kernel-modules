@@ -3853,22 +3853,24 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
     }
     portMemSet(pMap, 0, sizeof(*pMap));
     //
-    // METHOD3 window FB-binding (align2, 2026-09-17): law v2
-    //   landing(w0) = mappedFB + 0x70000 + 2MB*(floor(w0/2MB) - ceil(range0/2MB))
-    // with w0 = range0 + comp. Legacy 64KB-phase window => range0 misaligned
-    // => floor == ceil - 1, so with comp = 0 and mappedFB = allocFB + delta:
-    //   landing(w0) = allocFB + delta + 0x70000 - 2MB = allocFB  (delta=0x190000)
-    // EXACT — no encode-side compensation. (An aligned range0 would pin
-    // floor == ceil and keep an irreducible +0x70000; that is why the map
-    // above deliberately stays 64KB-phase. Log loudly if the allocator ever
-    // hands us a 2MB-aligned range0.)
+    // METHOD3 window FB-binding (align3, 2026-09-17): law v3 (64K PTEs,
+    // 18/18 points incl. full delta sweep): the GSP delivers the window's
+    // first (range0 mod 2MB) bytes of encoded writes to nowhere and lands
+    // the rest displaced by (delta - residue). With the 2MB VA placement
+    // floor (virt_mem_allocator_gm107.c bIsBar1, align3) range0 is always
+    // 2MB-aligned => residue 0 => dead zone 0 and, with comp = 0 and
+    // delta = 0, landing == intent EXACTLY for the whole window.
+    // (The sub-2MB partial first page was the entire corruption story:
+    // 610/615 GSP quantizes the aperture at 2MB but the BAR1 VA allocator
+    // placed windows at 64KB phases. duanyll's 4090s passed on allocator
+    // luck: his placements happened to be 2MB-aligned.)
     //
-    if ((memArea.pRanges[0].start & 0x1FFFFFULL) == 0)
+    if ((memArea.pRanges[0].start & 0x1FFFFFULL) != 0)
     {
         NV_PRINTF(LEVEL_ERROR,
-                  "METHOD3: align2 got 2MB-ALIGNED range0 0x%llx — binding will "
-                  "skew by +0x200000; report this (allocator phase changed?)\n",
-                  memArea.pRanges[0].start);
+                  "METHOD3: align3 got MISALIGNED range0 0x%llx — dead zone "
+                  "%llu bytes at window head; placement floor regressed?\n",
+                  memArea.pRanges[0].start, memArea.pRanges[0].start & 0x1FFFFFULL);
     }
     //
     // P3 calibration sweep knob (see kernel-open/nvidia/nv.c): extra

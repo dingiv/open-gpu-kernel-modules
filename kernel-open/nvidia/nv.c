@@ -140,7 +140,7 @@ MODULE_PARM_DESC(nv_dynbar1_calib, "dynbar1 window encode extra delta in bytes (
 // offset delta = 0x190000 (2MB - 0x70000) makes the anchor land EXACTLY on
 // allocFB. Takes effect at the NEXT dynamic-window creation.
 //
-unsigned long long nv_dynbar1_delta = 0x190000;
+unsigned long long nv_dynbar1_delta = 0;
 module_param(nv_dynbar1_delta, ullong, 0644);
 MODULE_PARM_DESC(nv_dynbar1_delta, "dynbar1 window FB-offset delta in bytes (debug)");
 
