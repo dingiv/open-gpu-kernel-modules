@@ -1160,6 +1160,16 @@
 
 //
 // Type: DWORD
+// DynBar1P2P (Method 3) kill-switch, default ON. When zero, pairs with any
+// non-static BAR1 end are cleanly rejected at the BAR1 qualification gate
+// (callers fall back to relay/shm). It deliberately does NOT restore the
+// vanilla both-static check with a PROPRIETARY mailbox fallback: on hosts
+// with BAR1<FB GeForce cards the mailbox path is a known-bad state.
+//
+#define NV_REG_STR_RM_DYN_BAR1_P2P_ENABLE                   "RMDynBar1P2PEnable"
+
+//
+// Type: DWORD
 // Enables/Disables the WAR for bug 1630288 where we disable 3rd-party peer mappings
 // Disabled by default
 //

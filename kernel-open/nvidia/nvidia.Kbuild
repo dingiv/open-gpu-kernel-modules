@@ -59,9 +59,13 @@ NVIDIA_CFLAGS += -DLIBSPDM_CONFIG=\"nvspdm_rmconfig.h\"
 #
 # P3 probe framework (compile-time master switch) — see src/nvidia/inc/p3_probe.h
 #
+# The header is included unconditionally (nv.c), so its path must always be
+# reachable; NV_P3_PROBES only gates the probe bodies at compile time.
+# (Pre-fix, default builds broke with "p3_probe.h: No such file".)
+#
+NVIDIA_CFLAGS += -I$(src)/../src/nvidia/inc
 ifeq ($(METHOD3_PROBES),1)
  NVIDIA_CFLAGS += -DNV_P3_PROBES=1
- NVIDIA_CFLAGS += -I$(src)/../src/nvidia/inc
 endif
 
 ifeq ($(NV_BUILD_TYPE),release)

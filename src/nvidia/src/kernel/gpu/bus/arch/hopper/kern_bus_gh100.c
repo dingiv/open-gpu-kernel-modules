@@ -1487,21 +1487,53 @@ kbusIsPcieBar1P2PMappingSupported_GH100
         return NV_FALSE;
     }
 
-    // Mixed pairs lack the bidirectional static IOMMU mapping. Advertising
-    // BAR1 P2P would allow the static encoder to target an unmapped window.
+    //
+    // DynBar1P2P (Method 3): static BAR1 on both ends is no longer required.
+    // - Static peer (BAR1 >= FB, whole-FB identity region): initiator PTEs encode
+    //   peerStaticBar1DmaBase + fbOffset. Relies on the per-pair IOMMU mapping
+    //   created by kbusCreateP2PMappingForBar1P2P_HAL, which is per-direction
+    //   guarded: the static end's region is mapped into the peer iovaspace.
+    // - Dynamic peer (BAR1 < FB, e.g. RTX 3080 20G with 256MB BAR1): each peer
+    //   allocation is windowed into the peer BAR1 at map time
+    //   (nv_gpu_ops.c _nvGpuOpsDynBar1Create) and carries its own IOMMU mapping,
+    //   so no static region exists or is needed.
+    //
+    // Each direction routes on the ACCESSED GPU's (owner's) static state, so
+    // static/dynamic mixed pairs are advertised.
+    //
+    // Regkey RMDynBar1P2PEnable=0 disables the dynamic/mixed extension: pairs
+    // with any non-static end are cleanly rejected (NOT_SUPPORTED -> callers
+    // fall back to relay/shm). It deliberately does NOT restore the vanilla
+    // both-static check followed by a PROPRIETARY mailbox fallback -- on hosts
+    // with BAR1<FB GeForce cards the mailbox path is a known-bad state (see
+    // gpu2-p2p hard-reset case record §9.3); keep it unreachable.
+    //
     {
         NvBool bStatic0 = kbusIsStaticBar1Enabled(pGpu0, pKernelBus0);
         NvBool bStatic1 = kbusIsStaticBar1Enabled(pGpu1, pKernelBus1);
-        if (bStatic0 != bStatic1)
+
+        if (!bStatic0 || !bStatic1)
         {
-            NV_PRINTF(LEVEL_WARNING,
-                      "METHOD3: mixed static/dynamic BAR1 (GPU%u static=%u, GPU%u static=%u); "
-                      "BAR1 P2P not advertised\n",
-                      gpuInst0, (NvU32)bStatic0, gpuInst1, (NvU32)bStatic1);
-            P3_PROBE(P3_TAG_PEERQ,
-                     "P2PQ mixed static/dynamic: GPU%u static=%d, GPU%u static=%d",
-                     gpuInst0, (NvU32)bStatic0, gpuInst1, (NvU32)bStatic1);
-            return NV_FALSE;
+            NvU32 regVal = 0;
+            NvBool bDynBar1P2PEnabled = NV_TRUE;
+
+            if (osReadRegistryDword(pGpu0, NV_REG_STR_RM_DYN_BAR1_P2P_ENABLE,
+                                    &regVal) == NV_OK)
+            {
+                bDynBar1P2PEnabled = (regVal != 0);
+            }
+
+            if (!bDynBar1P2PEnabled)
+            {
+                NV_PRINTF(LEVEL_WARNING,
+                          "DynBar1P2P: disabled by regkey; BAR1 P2P not advertised "
+                          "for pair GPU%u(static=%u) <-> GPU%u(static=%u)\n",
+                          gpuInst0, (NvU32)bStatic0, gpuInst1, (NvU32)bStatic1);
+                P3_PROBE(P3_TAG_PEERQ,
+                         "P2PQ dynbar1 regkey off: GPU%u static=%d, GPU%u static=%d",
+                         gpuInst0, (NvU32)bStatic0, gpuInst1, (NvU32)bStatic1);
+                return NV_FALSE;
+            }
         }
 
         P3_PROBE(P3_TAG_PEERQ,
@@ -1534,6 +1566,16 @@ _kbusRemoveStaticBar1IOMMUMapping
 
     NV_CHECK_OR_RETURN_VOID(LEVEL_ERROR,
                             vgpuGetCallingContextGfid(pPeerGpu, &peerGfid) == NV_OK);
+
+    //
+    // DynBar1P2P: symmetric to the create-side guard (see
+    // _kbusCreateStaticBar1IOMMUMapping): dynamic peers have no static region
+    // and were never IOMMU-mapped in this direction.
+    //
+    if (!kbusIsStaticBar1Enabled(pPeerGpu, pPeerKernelBus))
+    {
+        return;
+    }
 
     NV_ASSERT_OR_RETURN_VOID(pPeerKernelBus->bar1[peerGfid].staticBar1.pDmaMemDesc != NULL);
 
@@ -1586,6 +1628,20 @@ _kbusCreateStaticBar1IOMMUMapping
     NvU32 peerGpuGfid;
     MEMORY_DESCRIPTOR *pPeerDmaMemDesc = NULL;
     RmPhysAddr peerDmaAddr;
+
+    //
+    // DynBar1P2P: per-direction guard. The peer's static identity region only
+    // exists when the peer has static BAR1 enabled. For dynamic peers the
+    // initiator reaches allocations through per-allocation BAR1 windows
+    // (nv_gpu_ops.c), which carry their own IOMMU mappings -- nothing to do
+    // here. This makes the pair-level create/remove work for mixed
+    // static/dynamic pairs: each direction is mapped iff the accessed GPU
+    // (peer) is static.
+    //
+    if (!kbusIsStaticBar1Enabled(pPeerGpu, pPeerKernelBus))
+    {
+        return NV_OK;
+    }
 
     NV_ASSERT_OK_OR_RETURN(vgpuGetCallingContextGfid(pPeerGpu, &peerGpuGfid));
 
@@ -1769,13 +1825,14 @@ kbusCreateP2PMappingForBar1P2P_GH100
     if ((pKernelBus0->p2pPcieBar1.busBar1PeerRefcount[gpuInst1] == 0) &&
         (pKernelBus1->p2pPcieBar1.busBar1PeerRefcount[gpuInst0] == 0))
     {
-        // Dynamic windows acquire their IOMMU mappings per allocation.
-        if (kbusIsStaticBar1Enabled(pGpu0, pKernelBus0) &&
-            kbusIsStaticBar1Enabled(pGpu1, pKernelBus1))
-        {
-            NV_ASSERT_OK_OR_RETURN(_kbusCreateStaticBar1IOMMUMappingForGpuPair(pGpu0, pKernelBus0,
-                                                                               pGpu1, pKernelBus1));
-        }
+        //
+        // DynBar1P2P: per-direction guards inside map each direction iff the
+        // accessed (peer) GPU has static BAR1. static x static = both
+        // directions (original behavior, unchanged); mixed = one direction;
+        // dynamic x dynamic = no-op (windows carry their own mappings).
+        //
+        NV_ASSERT_OK_OR_RETURN(_kbusCreateStaticBar1IOMMUMappingForGpuPair(pGpu0, pKernelBus0,
+                                                                           pGpu1, pKernelBus1));
     }
 
     pKernelBus0->p2pPcieBar1.busBar1PeerRefcount[gpuInst1]++;
@@ -1831,11 +1888,9 @@ kbusRemoveP2PMappingForBar1P2P_GH100
     if ((pKernelBus0->p2pPcieBar1.busBar1PeerRefcount[gpuInst1] == 0) &&
         (pKernelBus1->p2pPcieBar1.busBar1PeerRefcount[gpuInst0] == 0))
     {
-        if (kbusIsStaticBar1Enabled(pGpu0, pKernelBus0) &&
-            kbusIsStaticBar1Enabled(pGpu1, pKernelBus1))
-        {
-            _kbusRemoveStaticBar1IOMMUMappingForGpuPair(pGpu0, pKernelBus0, pGpu1, pKernelBus1);
-        }
+        // DynBar1P2P: per-direction guards inside (symmetric to create-side);
+        // directions toward dynamic peers are no-ops.
+        _kbusRemoveStaticBar1IOMMUMappingForGpuPair(pGpu0, pKernelBus0, pGpu1, pKernelBus1);
     }
 
     NV_PRINTF(LEVEL_INFO, "removed PCIe BAR1 P2P mapping between GPU%u and GPU%u\n",
