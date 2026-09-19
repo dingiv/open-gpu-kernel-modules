@@ -131,6 +131,22 @@ module_param(nv_dynbar1_calib, ullong, 0644);
 MODULE_PARM_DESC(nv_dynbar1_calib, "dynbar1 window encode extra delta in bytes (debug)");
 
 //
+// patch3/候选A (2026-09-20): dynbar1 P2P window budget reserve, in MiB.
+// This is duanyll's conservative accounting constant (was a fixed 64MB):
+// budget guard = mapped + mapSize + reserve <= BAR1. It is advisory only —
+// the real BAR1 VA allocator enforces its own regions; observed driver-internal
+// usage starts windows at ~6-10MB. Shrink (e.g. 48) to fit NCCL-CUMEM postures
+// on 256MB-BAR1 devices (llama single-process direct/CUMEM transport needs
+// ~198MB of budget; see docs/llama.cpp/patch3-besteffort-cudaMalloc-施工文档.md).
+// Clamped to [8,192] MB at use. Takes effect at the NEXT window creation.
+//
+//   echo 48 > /sys/module/nvidia/parameters/nv_dynbar1_reserve_mb
+//
+unsigned int nv_dynbar1_reserve_mb = 64;
+module_param(nv_dynbar1_reserve_mb, uint, 0644);
+MODULE_PARM_DESC(nv_dynbar1_reserve_mb, "dynbar1 P2P budget reserve in MiB, clamped [8,192] (default 64)");
+
+//
 // align2 (P3): FB-offset of the dynamic-window aperture mapping (bytes).
 // Law v2 (12/12 exact): landing(w0) = allocFB + 0x70000
 //     + 2MB*(floor(w0/2MB) - ceil(range0/2MB))

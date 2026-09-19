@@ -3748,7 +3748,14 @@ _nvGpuOpsDynBar1Create(subDeviceDesc *rmSubDevice,
 {
     // Map only memdescGetSize(): ActualSize can include padding that the
     // aperture allocator cannot map through this allocation's memdesc.
-    const NvU64         DYN_BAR1_P2P_RESERVE = 64ULL << 20;
+    // patch3/候选A: reserve tunable (was fixed 64MB, duanyll conservative).
+    // Advisory accounting only — the real BAR1 VA allocator enforces its own
+    // regions. Clamped [8,192] MiB; see nv.c nv_dynbar1_reserve_mb.
+    extern unsigned int nv_dynbar1_reserve_mb;
+    NvU32 reserve_mb = nv_dynbar1_reserve_mb;
+    if (reserve_mb < 8)   reserve_mb = 8;
+    if (reserve_mb > 192) reserve_mb = 192;
+    const NvU64         DYN_BAR1_P2P_RESERVE = (NvU64)reserve_mb << 20;
     NV_STATUS           status;
     KernelBus          *pRemoteKernelBus = GPU_GET_KERNEL_BUS(pRemoteGpu);
     MEMORY_DESCRIPTOR  *pWin = NULL;
