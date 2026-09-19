@@ -4,7 +4,8 @@
 > 驱动:615.71.09 · 分支 `615.71.09-p2p-3080-20g`(上游血统:aikitoria 消费卡 P2P → duanyll
 > Method 3 动态窗 → 本地律 v3 修复 + 混插扩展 + P3 探针)
 > 关联:duanyll 博客 duanyll.com/2026/7/13/4090-48G-P2P/ 及其 `docs/48g-4090-p2p/` 设计文档;
-> 引擎实测见同目录 [engine-benchmarks.md](./engine-benchmarks.md)
+> 引擎实测见同目录 [engine-benchmarks.md](./engine-benchmarks.md);
+> 驱动待修复清单见 [known-issues.md](./known-issues.md)
 
 ## 一、设计原理
 
@@ -85,6 +86,9 @@ md5sum $(modinfo -n nvidia)                 # 复核指纹
 **换模块必须 md5 复核 + 冷启动,勿热替换;切换探针模式必须 `make clean`。**
 
 ## 四、现役限制(使用前必读)
+
+> 驱动侧待修复/待验证项已独立成档:[known-issues.md](./known-issues.md)
+> (VMM VA 落洞主案 / 预算回收验证 / 保留区默认值校准 / patch3 备胎)
 
 ### 限制 #1:动态端 192MB 单笔预算墙
 
