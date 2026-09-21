@@ -86,6 +86,21 @@ init 失败恶化为运行期故障)。仅当出现"大分配永不跨读"的 le
 - 运行时 reserve=48 的持久化:当前为运行时值,重启回 64;若 T0h 后验
   48 更优,再改默认
 
+## 外部事故定性记录(2026-09-20/21 Xid 群,非驱动缺陷)
+
+> 同一 boot(9-20 05:22 起,模块 a8e5167d 在位)出现三起应用侧事故,
+> 9-21 逐一定性。驱动内核侧全程零异常(P3 账本/无 REJECT/无 assert/无 UNMAP 异常)。
+
+| 案 | 时间/卡 | 症状 | 定性 | 关键证据 |
+|---|---|---|---|---|
+| A | 9-20 18:20 · 3080@01:00 | parity_all_cases ×5 pid 连续 Xid 31 FAULT_PDE VIRT_READ @ **VA 0**,随后 Xid 13 ×128 + Xid 43(通道毒化收尾) | **应用侧**(marlin kernel/FFI 读 null;当晚正处 libmarlin.a 九对象 archive 合并 churn 窗,临时不一致构建是自然解释) | ① 单卡 cudaMalloc 测试,**零 P2P**,不打进任何补丁/探针路径;② 同一模块实例 9-21 复现 30/30 全绿、内核零异常;③ fault VA=0 = kernel 内 null 解引用 |
+| B | 9-21 10:00 · 3080 对 | xinfer runner 双 rank **同刻同 host VA** segfault ×2 对(0x1ccd216410 / 0x26ad216410),死在 libcuda 用户态 SSE 拷贝循环 | **应用侧**(host 指针生命周期:异步 H2D 未完成就 unmap 源 mmap;s3-load 预取改造当日路径) | fault IP 在 libcuda 用户态,error 4 用户态读;驱动内核模块不在故障路径;双 rank 对称 = 确定性布局同一悬垂指针 |
+| C | 9-21 14:32 · 3090 对(静态路)| xinfer runner 双 rank 同毫秒 Xid 31 @ **同 VA 0x1f_cb427000** | **应用侧(最可能)**:graph × mempool trim 竞争,与 mistral.rs 已定谳前科同构(Xid 31 FAULT_PDE VIRT_READ 同签名) | ① fault VA 在 UVM 常规区(peer encode 基址 0x208/0x218_00000000 远方)且 PDE 无效 = 读已拆映射的自有 VA;② 3090 对静态路无窗口可拆,全 log 无该对 DynBar1 活动;③ 时间线 = gdb attach(14:07)→ Xid(14:32)→ 47e68da 提交(14:51,自述 trim 进 runner + OOM 归因中) |
+
+**结案口径**:三案均非驱动缺陷。案 C 若需 100% 封死,可按 mistral.rs 修法做 trim-off A/B
+(引擎级,~半小时);驱动侧无待办。案 A/B 的 app 侧修复属 xinfer/marlin-ffi 卷宗自理。
+另:9-21 起 `nv_p3_tags=0` 运行时静音(探针仍在模块内,`echo 0xffff` 可复开)。
+
 ## 已关闭
 
 | 项 | 关闭方式 |
